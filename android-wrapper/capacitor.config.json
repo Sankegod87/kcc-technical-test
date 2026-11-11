@@ -1,0 +1,12 @@
+{
+  "appId": "org.kcc.technical",
+  "appName": "KCC Technical",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

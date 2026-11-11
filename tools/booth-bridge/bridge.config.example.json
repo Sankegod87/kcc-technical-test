@@ -1,0 +1,14 @@
+{
+  "port": 8099,
+  "x32ip": "192.168.1.70",
+  "channels": 16,
+  "midiOut": "loopMIDI Port",
+  "midiChannel": 0,
+  "token": "",
+  "scenes": [
+    { "name": "House lights up", "note": 36 },
+    { "name": "Worship",         "note": 37 },
+    { "name": "Message",         "note": 38 },
+    { "name": "Blackout",        "note": 39 }
+  ]
+}

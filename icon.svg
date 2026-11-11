@@ -1,0 +1,12 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="512" height="512" rx="96" fill="#0F6E56"/>
+  <!-- Bar 1 (top, full width) -->
+  <rect x="80" y="108" width="352" height="64" rx="32" fill="white"/>
+  <!-- Bar 2 -->
+  <rect x="80" y="200" width="256" height="64" rx="32" fill="rgba(255,255,255,0.80)"/>
+  <!-- Bar 3 -->
+  <rect x="80" y="292" width="160" height="64" rx="32" fill="rgba(255,255,255,0.55)"/>
+  <!-- Bar 4 (shortest) -->
+  <rect x="80" y="384" width="80"  height="64" rx="32" fill="rgba(255,255,255,0.32)"/>
+</svg>

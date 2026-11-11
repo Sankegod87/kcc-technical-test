@@ -1,0 +1,2710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline' https://www.gstatic.com; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta charset="UTF-8">
+<script>
+(function(){
+  document.documentElement.className = 'dark-mode';
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>KCC Technical</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0F6E56">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="msapplication-TileColor" content="#0F6E56">
+<meta name="apple-mobile-web-app-title" content="KCC Technical">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+
+<!-- Firebase v10 -->
+<script src="kcc-schema.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, doc, getDoc, onSnapshot, runTransaction, serverTimestamp }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFunctions, httpsCallable }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js";
+import { getAuth, signInWithCustomToken, signOut, onIdTokenChanged }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+// ═══════════════════════════════════════════════════
+// 🔧 FIREBASE CONFIG
+// ═══════════════════════════════════════════════════
+const firebaseConfig = {
+  apiKey:            "AIzaSyCWuthng40k55iBrQAccYE4zCg012Pt2fA",
+  authDomain:        "light-tracker-d708f.firebaseapp.com",
+  projectId:         "light-tracker-d708f",
+  storageBucket:     "light-tracker-d708f.firebasestorage.app",
+  messagingSenderId: "268758980349",
+  appId:             "1:268758980349:web:111d497335e8bbefb65094"
+};
+// Optional: paste a reCAPTCHA v3 site key here to turn on App Check (blocks requests that do not come from this app).
+const APP_CHECK_SITE_KEY = "";
+// ═══════════════════════════════════════════════════
+// Data layout: one Firestore document per kind of data (data/<key>), see kcc-schema.js.
+// Sign-in goes through the "kccLogin" Cloud Function, which returns a token carrying the person's role.
+// ═══════════════════════════════════════════════════
+const S = window.KCC_SCHEMA;
+let app, fsdb, auth, fns;
+let _firebaseReady = false;
+const cache = {};          // key -> { val, n }  latest cloud copy of each document
+const lastNonce = {};      // key -> id of our own most recent save (so we ignore its echo)
+let got = new Set(), unsubs = [], firstDone = false, applyTimer = null;
+let claims = { r: null, cs: false };
+
+function syncUI(state, msg) {
+  if (typeof window.setSyncState === 'function') {
+    window.setSyncState(state, msg);
+    if (state === 'ok') { try { window.updSyncTime && window.updSyncTime(); } catch(e){} }
+  } else {
+    window.dispatchEvent(new CustomEvent("syncStatus", { detail: { state, msg } }));
+  }
+  const el = document.getElementById('ls-syncStatus');
+  if (el) el.textContent = msg;
+}
+const parse = (d) => { try { return JSON.parse(d.p); } catch (e) { return undefined; } };
+const localDb = () => (window._localDb ? window._localDb() : {});
+const clone = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));  // the app mutates its data in place, so never hand it our cached copy
+
+// Put the per-document copies back together into the single object the app works with.
+function assemble() {
+  const local = localDb(), r = {};
+  S.APP_KEYS.forEach((k) => {
+    if (k === 'settings') return;
+    const c = cache[k];
+    r[k] = (c && c.val !== undefined) ? clone(c.val) : (got.has(k) ? undefined : local[k]);
+  });
+  const a = cache.settings, b = cache.settingsRt;
+  r.settings = clone(S.joinSettings(a && a.val, b && b.val));
+  // keep this device's copy of anything we could not read
+  S.APP_KEYS.forEach((k) => { if (k !== 'settings' && r[k] === undefined && unreadable.has(k)) r[k] = local[k]; });
+  if (unreadable.has('settings')) r.settings = local.settings;
+  return r;
+}
+const unreadable = new Set();
+
+function apply() {
+  const run = () => { try { window._onRemoteData(assemble()); } catch (e) { console.warn('Firebase data error', e); } };
+  if (typeof window._onRemoteData === 'function') { run(); return; }
+  let n = 0; const wait = setInterval(() => { n++; if (typeof window._onRemoteData === 'function') { clearInterval(wait); run(); } else if (n > 50) clearInterval(wait); }, 100);
+}
+function scheduleApply() { if (!firstDone) return; clearTimeout(applyTimer); applyTimer = setTimeout(apply, 30); }
+
+function markGot(k) {
+  got.add(k);
+  if (!firstDone && got.size >= S.ALL.length) {
+    firstDone = true; apply();
+    syncUI("ok", "Live sync ✓");
+    const dot = document.getElementById('ls-sync-dot'); if (dot) dot.style.background = '#5DCAA5';
+  }
+}
+function startData() {
+  stopData();
+  S.ALL.forEach((k) => {
+    unsubs.push(onSnapshot(doc(fsdb, 'data/' + k), (snap) => {
+      const d = snap.exists() ? snap.data() : null;
+      unreadable.delete(k);
+      if (d && d.n && d.n === lastNonce[k]) { markGot(k); return; }  // our own save coming back
+      cache[k] = d ? { val: parse(d), n: d.n } : { val: undefined, n: null };
+      markGot(k); scheduleApply();
+    }, (err) => {
+      console.warn('Cannot read', k, err.code);
+      unreadable.add(k); markGot(k);
+    }));
+  });
+}
+function stopData() { unsubs.forEach((u) => { try { u(); } catch (e) {} }); unsubs = []; got = new Set(); firstDone = false; }
+
+async function initFirebase() {
+  try {
+    if (firebaseConfig.apiKey === "YOUR_API_KEY") { window._syncMode = "local"; syncUI("local", "Local mode — no Firebase config"); return; }
+    app = initializeApp(firebaseConfig);
+    if (APP_CHECK_SITE_KEY) {
+      const ac = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js");
+      ac.initializeAppCheck(app, { provider: new ac.ReCaptchaV3Provider(APP_CHECK_SITE_KEY), isTokenAutoRefreshEnabled: true });
+    }
+    fsdb = getFirestore(app); auth = getAuth(app); fns = getFunctions(app);
+    window._syncMode = "firebase";
+    syncUI("syncing", "Connecting…");
+    const connTimeout = setTimeout(() => { if (!_firebaseReady) syncUI("error", "Check internet connection"); }, 8000);
+
+    // Names for the sign-in screen (public, no secrets).
+    onSnapshot(doc(fsdb, 'pub/roster'), (s) => {
+      try { window._roster = s.exists() ? JSON.parse(s.data().v) : []; } catch (e) { window._roster = []; }
+      window._rosterReady = true; _firebaseReady = true; clearTimeout(connTimeout);
+      window.dispatchEvent(new Event('rosterChanged'));
+      if (!auth.currentUser) syncUI("ok", "Ready — sign in");
+    }, (err) => { console.error('Roster error', err); syncUI("error", "Sync error: " + err.code); });
+
+    // Role claims travel inside the sign-in token; keep them current when it refreshes.
+    let first = true;
+    window._authReady = new Promise((res) => {
+      onIdTokenChanged(auth, async (user) => {
+        if (!user) { claims = { r: null, cs: false }; stopData(); }
+        else {
+          const t = await user.getIdTokenResult();
+          const wasIn = !!claims.r; claims = { r: t.claims.r || null, cs: !!t.claims.cs };
+          if (!wasIn) startData();
+        }
+        window.dispatchEvent(new Event('authChanged'));
+        if (first) { first = false; res(); }
+      });
+    });
+    window._authUid = () => (auth.currentUser ? auth.currentUser.uid : null);
+    window._authClaims = () => claims;
+    _firebaseReady = true;
+  } catch (e) {
+    console.error(e); window._syncMode = "local"; syncUI("error", "Firebase init failed");
+  }
+}
+
+// ── sign in / out and server actions ──
+const call = (name) => async (payload) => (await httpsCallable(fns, name)(payload || {})).data;
+window._kccLogin = async (techId, password) => { const r = await call('kccLogin')({ techId, password }); await signInWithCustomToken(auth, r.token); return r; };
+window._kccBootstrap = async (p) => { const r = await call('kccBootstrap')(p); await signInWithCustomToken(auth, r.token); return r; };
+window._kccSignOut = async () => { try { await signOut(auth); } catch (e) {} };
+window._kccTechOp = (p) => call('kccTechOp')(p);
+window._kccSetSecret = (name, value) => call('kccSetSecret')({ name, value });
+window._kccHasSecret = (name) => call('kccHasSecret')({ name });
+window._kccNotesGet = (id) => call('kccNotesGet')({ id });
+window._kccNoteAdd = (p) => call('kccNoteAdd')(p);
+window._kccNoteDel = (p) => call('kccNoteDel')(p);
+window._kccYtLive = (force) => call('kccYtLive')({ force: !!force });
+window._kccSubmitRequest = (p) => call('kccSubmitRequest')(p);
+window._kccConfirm = (key) => call('kccConfirm')({ key });
+window._kccConfirmLink = (p) => call('kccConfirmLink')(p);
+window._kccLinks = (key, techIds) => call('kccLinks')({ key, techIds });
+window._fetchKey = async (k) => { const s = await getDoc(doc(fsdb, 'data/' + k)); const d = s.exists() ? s.data() : null; if (d) cache[k] = { val: parse(d), n: d.n }; return d ? parse(d) : null; };
+window._fetchRemote = async () => {
+  await Promise.all(S.ALL.map((k) => window._fetchKey(k).catch(() => { unreadable.add(k); })));
+  return assemble();
+};
+
+// ── saving: only documents that changed, only ones this role may write, merged if someone else saved first ──
+function baseFor(k, base) {
+  if (k === 'settings') return S.splitSettings(base.settings).settings;
+  if (k === 'settingsRt') return S.splitSettings(base.settings).settingsRt;
+  return base[k];
+}
+async function writeKey(k, val) {
+  const ref = doc(fsdb, 'data/' + k);
+  const nonce = Date.now() + '_' + Math.random().toString(36).slice(2);
+  let finalVal = val;
+  await runTransaction(fsdb, async (tx) => {
+    const s = await tx.get(ref);
+    finalVal = val;
+    if (s.exists()) {
+      const d = s.data(), remote = parse(d), known = cache[k] ? cache[k].n : null;
+      if (d.n !== known && remote !== undefined && typeof window.mergeVal === 'function') {
+        const base = (typeof window.syncGetBase === 'function' && window.syncGetBase()) || {};
+        finalVal = window.mergeVal(baseFor(k, base), val, remote);
+      }
+    }
+    tx.set(ref, { p: JSON.stringify(finalVal), n: nonce, t: serverTimestamp() });
+  });
+  lastNonce[k] = nonce; cache[k] = { val: clone(finalVal), n: nonce };
+  if (JSON.stringify(finalVal) !== JSON.stringify(val)) { firstDone && scheduleApply(); }
+}
+window._lastDenied = [];
+window._saveToFirebase = async (data) => {
+  if (!_firebaseReady || !auth || !auth.currentUser || !firstDone) return false;
+  if (navigator.onLine === false) return false; // never queue a blind overwrite for later
+  const parts = S.splitSettings(data.settings);
+  const out = Object.assign({}, data, { settings: parts.settings, settingsRt: parts.settingsRt });
+  let failed = false; const denied = [];
+  for (const k of S.ALL) {
+    if (S.tierOf(k) === 'server' || out[k] === undefined) continue;
+    const c = cache[k], cur = c && c.val !== undefined ? JSON.stringify(c.val) : null;
+    if (JSON.stringify(out[k]) === cur) continue;
+    if (cur === null && JSON.stringify(out[k]) === (Array.isArray(out[k]) ? '[]' : '{}')) continue; // nothing to create
+    if (!S.canWrite(k, claims.r, claims.cs)) { denied.push(k); continue; }
+    try { await writeKey(k, out[k]); } catch (e) { console.warn('Save failed for', k, e.code || e); failed = true; }
+  }
+  window._lastDenied = denied;
+  return !failed;
+};
+initFirebase();
+</script>
+
+<!-- EmailJS -->
+<script src="js/vendor/emailjs-browser-4.4.1.min.js"></script>
+<script>emailjs.init("LQHE0BV7ztF4iXf_v");</script>
+<!-- QR Scanner -->
+<script src="js/vendor/html5-qrcode-2.3.8.min.js"></script>
+<!-- QR Generator -->
+<script src="js/vendor/qrcodejs-1.0.0.min.js"></script>
+<!-- SheetJS (XLSX import) -->
+<script src="js/vendor/xlsx-0.18.5.full.min.js"></script>
+
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="toasts"></div>
+<div id="printArea"></div>
+
+<!-- ═══════════════════════════════════════
+     HOME SCREEN (shown after login)
+     ═══════════════════════════════════════ -->
+<div id="homeScreen">
+  <div class="hs-bg-grid"></div>
+  <div class="hs-inner">
+    <div class="hs-greeting">
+      <div class="hs-avatar-ring" id="hs-avatar">👤</div>
+      <div class="hs-welcome">Welcome back</div>
+      <div class="hs-name" id="hs-name">—</div>
+      <div id="hs-role-wrap"><span class="hs-role-tag" id="hs-role">—</span></div>
+    </div>
+    <div class="hs-grid">
+      <div class="hs-card" onclick="hsGo('dashboard')">
+        <div class="hs-card-icon">💡</div>
+        <div class="hs-card-label">Lights</div>
+        <div class="hs-card-sub">Fixtures · Outages<br>Inventory · Scan</div>
+      </div>
+      <div class="hs-card" onclick="hsGo('schedule')">
+        <div class="hs-card-icon">📅</div>
+        <div class="hs-card-label">Schedule</div>
+        <div class="hs-card-sub">Sunday roster<br>Station assignments</div>
+      </div>
+      <div class="hs-card" onclick="hsGo('checkout')">
+        <div class="hs-card-icon">📦</div>
+        <div class="hs-card-label">Gear</div>
+        <div class="hs-card-sub">Checkout · Maintenance<br>Asset tracking</div>
+      </div>
+    </div>
+    <div class="hs-sunday">
+      <div class="hs-sunday-label">📅 This Sunday</div>
+      <div id="hs-sunday-content" style="font-size:13px;color:rgba(255,255,255,.6);font-family:var(--mono)"></div>
+    </div>
+    <div class="hs-signout">
+      <button onclick="lsLogout()">Sign out</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     FULL SCREEN LOGIN
+     ═══════════════════════════════════════ -->
+<div id="loginScreen">
+  <div class="ls-bg-grid"></div>
+
+  <div class="ls-split">
+
+    <!-- LEFT — branding + crew grid -->
+    <div class="ls-panel-left">
+      <div class="ls-logo-box">
+        <svg width="28" height="36" viewBox="0 0 28 36" fill="none">
+          <rect x="0" y="0"  width="28" height="6" rx="3" fill="white"/>
+          <rect x="0" y="10" width="20" height="6" rx="3" fill="rgba(255,255,255,0.78)"/>
+          <rect x="0" y="20" width="12" height="6" rx="3" fill="rgba(255,255,255,0.52)"/>
+          <rect x="0" y="30" width="5"  height="6" rx="2.5" fill="rgba(255,255,255,0.28)"/>
+        </svg>
+      </div>
+      <div class="ls-wordmark" id="ls-wordmark">KCC Technical</div>
+      <div class="ls-sub" id="ls-tagline">Crew Portal</div>
+
+      <!-- Step dots -->
+      <div class="ls-steps" id="ls-step-dots">
+        <span class="ls-step-dot on" id="ls-dot-1"></span>
+        <span class="ls-step-dot off" id="ls-dot-2"></span>
+        <span class="ls-step-label" id="ls-step-label">Step 1 of 2 — Select your name</span>
+      </div>
+
+      <div class="ls-section-label">Who are you?</div>
+      <div id="ls-userGrid"></div>
+      <div id="ls-noUsers" style="display:none">
+        <p style="font-family:var(--mono);font-size:12px;color:rgba(255,255,255,.3);line-height:1.6">No crew members yet. Ask your admin to add you in the Crew section.</p>
+      </div>
+      <!-- First-run bootstrap — shown only when zero crew exist -->
+      <div id="ls-firstRun" style="display:none;margin-top:16px;background:rgba(15,110,86,.1);border:0.5px solid rgba(15,110,86,.3);border-radius:12px;padding:16px">
+        <div style="font-size:13px;font-weight:600;color:#9FE1CB;margin-bottom:6px">👋 First time setup</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.4);font-family:var(--mono);line-height:1.6;margin-bottom:12px">No crew members yet. Create the first Master Admin account to get started.</div>
+        <button onclick="openFirstRunSetup()" style="background:#0F6E56;border:none;border-radius:8px;padding:10px 16px;color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--head);width:100%">+ Create Master Admin Account</button>
+      </div>
+
+      <div class="ls-footer">
+        <span class="ls-sync-dot" id="ls-sync-dot"></span>
+        KCC Technical &nbsp;·&nbsp; <span id="ls-syncStatus">Connecting…</span>
+      </div>
+    </div>
+
+    <!-- RIGHT — password step -->
+    <div class="ls-panel-right" id="ls-step2" style="display:none">
+      <div class="ls-step2-inner">
+        <!-- Step dots mirror -->
+        <div class="ls-steps" style="margin-bottom:24px">
+          <span class="ls-step-dot off"></span>
+          <span class="ls-step-dot on"></span>
+          <span class="ls-step-label">Step 2 of 2 — Enter password</span>
+        </div>
+
+        <button class="ls-back-btn" onclick="lsBack()">← Back to crew list</button>
+
+        <div class="ls-selected-user">
+          <div class="ls-sel-avatar" id="ls-avatar">👤</div>
+          <div>
+            <div class="ls-sel-name" id="ls-name">—</div>
+            <div class="ls-sel-role" id="ls-role">—</div>
+          </div>
+        </div>
+
+        <label class="ls-pw-label">Password</label>
+        <input type="password" id="ls-pw" class="ls-pw-input"
+          placeholder="Enter your password"
+          onkeydown="if(event.key==='Enter')lsSubmit()">
+
+        <div class="ls-err" id="ls-err">Incorrect password — try again.</div>
+
+        <button class="ls-login-btn" onclick="lsSubmit()">Log In →</button>
+        <button class="ls-forgot" onclick="lsForgot()">Forgot password?</button>
+
+        <div class="ls-helper-note">
+          Not on the list? Ask your admin to add<br>you in the Crew section of the app.
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- External Tech-Support Request Screen — no login required, reached via #request link -->
+<div id="extRequestScreen" style="display:none;position:fixed;inset:0;z-index:1500;background:var(--bg);overflow-y:auto">
+  <div style="max-width:520px;margin:0 auto;padding:32px 20px 60px">
+    <div style="text-align:center;margin-bottom:24px">
+      <div style="font-family:var(--head);font-weight:900;font-size:22px;color:var(--amber)">KCC Technical</div>
+      <div class="dim" style="margin-top:4px">Request Tech Support</div>
+    </div>
+    <div id="extReq-form">
+      <p class="dim mb14" style="text-align:center">Need AV, lighting, or camera help for an upcoming service or event? Fill this out and our tech team will follow up.</p>
+      <div class="fgrid">
+        <div class="fg"><label>Your name *</label><input id="er-name" placeholder="e.g. Sarah Thompson"></div>
+        <div class="fg"><label>Ministry / Department *</label><input id="er-dept" placeholder="e.g. Kids Ministry, Worship, Events"></div>
+        <div class="fg"><label>Contact (email or phone)</label><input id="er-contact" placeholder="So we can follow up"></div>
+        <div class="fg"><label>Event / service date</label><input id="er-eventdate" type="date"></div>
+        <div class="fg" style="grid-column:1/-1"><label>Category (select all that apply)</label>
+          <div id="er-cat-group" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
+            <label class="er-cat-chip"><input type="checkbox" value="AV Equipment"> AV Equipment</label>
+            <label class="er-cat-chip"><input type="checkbox" value="Lighting"> Lighting</label>
+            <label class="er-cat-chip"><input type="checkbox" value="Camera / Video"> Camera / Video</label>
+            <label class="er-cat-chip"><input type="checkbox" value="IT / Network"> IT / Network</label>
+            <label class="er-cat-chip"><input type="checkbox" value="Other"> Other</label>
+          </div>
+        </div>
+        <div class="fg" style="grid-column:1/-1"><label>What do you need? *</label><textarea id="er-details" placeholder="Describe the event and what tech support you need..." style="min-height:90px"></textarea></div>
+        <div class="fg" style="grid-column:1/-1">
+          <label>Photos / reference media (optional)</label>
+          <div id="er-media-drop" style="border:2px dashed var(--border2);border-radius:8px;padding:16px;text-align:center;cursor:pointer" onclick="document.getElementById('er-media-input').click()" ondragover="event.preventDefault();this.style.borderColor='var(--amber)'" ondragleave="this.style.borderColor='var(--border2)'" ondrop="_erMediaDrop(event)">
+            <div class="dim" style="font-size:12px">📎 Tap to choose photos, or drag & drop here</div>
+            <input id="er-media-input" type="file" accept="image/*" multiple style="display:none" onchange="_erMediaAdd(this.files)">
+          </div>
+          <div id="er-media-preview" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px"></div>
+        </div>
+      </div>
+      <div id="extReq-status" class="dim" style="margin:10px 0;font-size:12px;text-align:center"></div>
+      <button class="btn ba" style="width:100%;margin-top:6px" onclick="submitExternalRequest()">Submit Request</button>
+    </div>
+    <div id="extReq-success" style="display:none;text-align:center;padding:30px 0">
+      <div style="font-size:40px;margin-bottom:12px">✅</div>
+      <div class="fw7" style="font-size:16px;margin-bottom:6px">Request submitted!</div>
+      <p class="dim">The tech team has been notified and will follow up with you.</p>
+      <button class="btn bgh" style="margin-top:18px" onclick="resetExternalRequestForm()">Submit another request</button>
+    </div>
+  </div>
+</div>
+
+<button id="fabScan" onclick="openGlobalScanner()" style="
+  position:fixed;bottom:24px;right:24px;z-index:150;
+  width:60px;height:60px;border-radius:50%;border:none;
+  background:var(--amber);color:#fff;font-size:26px;
+  cursor:pointer;box-shadow:0 4px 20px rgba(240,165,0,.5);
+  transition:all .2s;display:flex;align-items:center;justify-content:center;
+" title="Scan QR / Barcode">📷</button>
+
+<!-- Global Scanner Modal -->
+<div id="m-globalScan" class="mover" style="display:none" onclick="mOut(event,'globalScan')">
+  <div class="modal">
+    <div class="mh"><span class="mt">📷 Scan QR / Barcode</span><button class="xb" onclick="closeGlobalScanner()">✕</button></div>
+    <div class="mb">
+      <div id="gs-reader" style="margin-bottom:12px;border-radius:8px;overflow:hidden"></div>
+      <div id="gs-result" style="display:none;background:var(--gglow);border:1px solid rgba(40,201,122,.3);border-radius:6px;padding:12px;margin-bottom:12px;font-size:13px;color:var(--green)"></div>
+      <p class="dim" style="text-align:center;margin:10px 0">— or enter code manually —</p>
+      <div class="fg mb12">
+        <label>QR / Barcode Value</label>
+        <input type="text" id="gsManual" placeholder="e.g. FX-001 or BLB-A-003" oninput="this.value=this.value.toUpperCase()" autocomplete="off" onkeydown="if(event.key==='Enter')gsSubmit()">
+      </div>
+      <div id="gsActions" style="display:grid;grid-template-columns:1fr 1fr;gap:8px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- PIN overlay -->
+<div id="pinOverlay" class="pin-overlay" style="display:none">
+  <div class="pin-box">
+    <div style="font-size:28px;margin-bottom:8px">🔒</div>
+    <div style="font-family:var(--head);font-size:18px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px" id="pinLabel">Admin PIN</div>
+    <div class="dim" id="pinSub">Enter 4-digit PIN</div>
+    <div class="pin-dots" id="pinDots">
+      <div class="pin-dot" id="pd0"></div><div class="pin-dot" id="pd1"></div>
+      <div class="pin-dot" id="pd2"></div><div class="pin-dot" id="pd3"></div>
+    </div>
+    <div class="pin-pad">
+      <div class="pin-key" onclick="pinKey('1')">1</div><div class="pin-key" onclick="pinKey('2')">2</div><div class="pin-key" onclick="pinKey('3')">3</div>
+      <div class="pin-key" onclick="pinKey('4')">4</div><div class="pin-key" onclick="pinKey('5')">5</div><div class="pin-key" onclick="pinKey('6')">6</div>
+      <div class="pin-key" onclick="pinKey('7')">7</div><div class="pin-key" onclick="pinKey('8')">8</div><div class="pin-key" onclick="pinKey('9')">9</div>
+      <div class="pin-key" onclick="pinKey('C')" style="color:var(--red)">✕</div><div class="pin-key" onclick="pinKey('0')">0</div><div class="pin-key" onclick="pinKey('ok')" style="color:var(--green)">✓</div>
+    </div>
+    <button class="btn bgh bsm" style="margin-top:14px;width:100%;justify-content:center" onclick="cancelPin()">Cancel</button>
+  </div>
+</div>
+
+
+
+<div id="scanSheetWrap" aria-hidden="true">
+  <div id="scanSheetBg" onclick="closeScanSheet()"></div>
+  <div id="scanSheet" role="dialog" aria-modal="true" aria-label="Scan result"></div>
+</div>
+<div id="appShell">
+<aside id="appSidebar">
+  <div class="sidebar-logo">
+    <div class="logo-mark">
+      <div class="logo-icon">
+        <svg viewBox="0 0 17 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="0" y="0" width="17" height="4" rx="2" fill="white"/>
+          <rect x="0" y="6" width="12" height="4" rx="2" fill="rgba(255,255,255,0.8)"/>
+          <rect x="0" y="12" width="7" height="4" rx="2" fill="rgba(255,255,255,0.55)"/>
+          <rect x="0" y="18" width="3" height="4" rx="1.5" fill="rgba(255,255,255,0.35)"/>
+        </svg>
+      </div>
+      <div class="logo-text">KCC Technical</div>
+    </div>
+  </div>
+  <div class="sidebar-nav">
+    <div class="snav-label">Sunday</div>
+    <button class="snav-btn" id="snav-sunday" onclick="go('sunday')">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6L13 13M3 13l1.4-1.4M11.6 4.4L13 3"/></svg>
+      Service Day
+    </button>
+    <button class="snav-btn active" id="snav-dashboard" onclick="go('dashboard')">
+      <svg viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+      Control Room
+    </button>
+    <button class="snav-btn" id="snav-schedule" onclick="go('schedule')">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="11" rx="1"/><path d="M5 1v4M11 1v4M2 7h12"/></svg>
+      Schedule
+    </button>
+    <div class="snav-label" style="margin-top:8px">Rig</div>
+    <button class="snav-btn" id="snav-fixtures" onclick="go('fixtures')">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="6" r="3"/><path d="M8 9v6M5 14h6"/></svg>
+      Fixtures &amp; Stock
+    </button>
+    <button class="snav-btn" id="snav-scan" onclick="go('scan')">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="4"/><path d="M10 10l4 4"/></svg>
+      Scan
+    </button>
+    <div class="snav-label" style="margin-top:8px">Gear</div>
+    <button class="snav-btn" id="snav-checkout" onclick="go('checkout')">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="3" width="10" height="8" rx="1"/><path d="M11 6l4-2v6l-4-2V6zM4 7h4"/></svg>
+      Asset Checkout
+    </button>
+    <button class="snav-btn" id="snav-maintenance" onclick="go('maintenance')">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.5"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.1 3.1l1.4 1.4M11.5 11.5l1.4 1.4M3.1 12.9l1.4-1.4M11.5 4.5l1.4-1.4"/></svg>
+      Maintenance
+    </button>
+    <div class="snav-label" style="margin-top:8px">Crew</div>
+    <button class="snav-btn" id="snav-crew" onclick="window._crewDeptFilter='all';go('crew')">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a4 4 0 100 8A4 4 0 008 1zm0 10c-3 0-7 1.5-7 3v1h14v-1c0-1.5-4-3-7-3z"/></svg>
+      Crew
+    </button>
+    <button class="snav-btn" onclick="go('crew');setTimeout(()=>{window._crewDeptFilter='Lighting';document.getElementById('crew-dept-filter-wrap').innerHTML='';renderCrew();},80)">
+      <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="6" r="3" fill="#0F6E56"/><path d="M5 13c0-1.7 1.3-3 3-3s3 1.3 3 3" stroke="#0F6E56" stroke-width="1.5" fill="none"/></svg>
+      <span style="color:#0F6E56">Lighting</span>
+    </button>
+    <button class="snav-btn" onclick="go('crew');setTimeout(()=>{window._crewDeptFilter='Audio';document.getElementById('crew-dept-filter-wrap').innerHTML='';renderCrew();},80)">
+      <svg viewBox="0 0 16 16" fill="none"><rect x="2" y="5" width="4" height="6" rx="1" fill="#185FA5"/><path d="M6 8h4M10 5v6" stroke="#185FA5" stroke-width="1.5"/></svg>
+      <span style="color:#185FA5">Audio</span>
+    </button>
+    <button class="snav-btn" onclick="go('crew');setTimeout(()=>{window._crewDeptFilter='Cameras';document.getElementById('crew-dept-filter-wrap').innerHTML='';renderCrew();},80)">
+      <svg viewBox="0 0 16 16" fill="none"><rect x="1" y="4" width="10" height="8" rx="1.5" fill="#854F0B"/><path d="M11 7l4-2v6l-4-2V7z" fill="#854F0B"/></svg>
+      <span style="color:#854F0B">Cameras</span>
+    </button>
+    <button class="snav-btn" onclick="go('crew');setTimeout(()=>{window._crewDeptFilter='IT';document.getElementById('crew-dept-filter-wrap').innerHTML='';renderCrew();},80)">
+      <svg viewBox="0 0 16 16" fill="none"><rect x="1" y="3" width="14" height="9" rx="1.5" fill="#5F5E5A"/><path d="M5 14h6" stroke="#5F5E5A" stroke-width="1.5"/></svg>
+      <span style="color:#5F5E5A">IT</span>
+    </button>
+    <button class="snav-btn" id="snav-training" onclick="go('training')">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4l6-2 6 2v5c0 3-6 5-6 5S2 12 2 9V4z"/></svg>
+      Training Hub
+    </button>
+    <div class="snav-label" style="margin-top:8px">Admin</div>
+    <button class="snav-btn" id="snav-requests" onclick="go('requests')">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 6h6M5 9h4"/></svg>
+      Tech Requests
+      <span class="snav-badge" id="req-badge" style="display:none">0</span>
+    </button>
+    <button class="snav-btn" id="snav-announcements" onclick="go('announcements')">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 5h10l1 6H2L3 5z"/><path d="M6 5V3.5a2 2 0 014 0V5"/></svg>
+      Announcements
+    </button>
+    <button class="snav-btn" id="snav-settings" onclick="go('settings')">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.5 1.5M11.5 11.5L13 13M3 13l1.5-1.5M11.5 4.5L13 3"/></svg>
+      Settings
+    </button>
+    <button class="snav-btn" id="snav-feedbackadmin" onclick="feedbackNav()">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 2h12v9H9l-3 3v-3H2z"/></svg>
+      Feedback
+      <span class="snav-badge" id="feedback-badge" style="display:none">0</span>
+    </button>
+    <button class="snav-btn" id="snav-auditlog" data-perm="admin" onclick="go('auditlog')">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h10v12H3z"/><path d="M5 5h6M5 8h6M5 11h4"/></svg>
+      Audit Log
+    </button>
+  </div>
+  <div class="sidebar-footer">
+    <div class="sf-avatar" id="sfAvatar">👤</div>
+    <div style="flex:1;min-width:0">
+      <div class="sf-name" id="sfName">—</div>
+      <div class="sf-role" id="sfRole">—</div>
+    </div>
+    <button onclick="lsLogout()" title="Sign out" style="background:none;border:0.5px solid var(--border2);border-radius:8px;padding:5px 8px;color:var(--dim2);cursor:pointer;font-size:11px;flex-shrink:0;transition:all .15s" onmouseover="this.style.borderColor='var(--red)';this.style.color='var(--red)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--dim2)'">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6 8h8M11 5l3 3-3 3M10 3H3a1 1 0 00-1 1v8a1 1 0 001 1h7"/></svg>
+    </button>
+  </div>
+</aside>
+
+<div id="appContent">
+  <div id="appTopbar">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:26px;height:26px;background:#0F6E56;border-radius:6px;display:flex;align-items:center;justify-content:center;padding:4px 5px;flex-shrink:0">
+        <svg viewBox="0 0 17 22" fill="none" width="13" height="17"><rect x="0" y="0" width="17" height="4" rx="2" fill="white"/><rect x="0" y="6" width="12" height="4" rx="2" fill="rgba(255,255,255,0.8)"/><rect x="0" y="12" width="7" height="4" rx="2" fill="rgba(255,255,255,0.55)"/><rect x="0" y="18" width="3" height="4" rx="1.5" fill="rgba(255,255,255,0.35)"/></svg>
+      </div>
+      <span id="topbarTitle" style="font-weight:600">Dashboard</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <button class="btn bgh bsm" onclick="openGlobalScanner()">Scan</button>
+      <button class="btn ba bsm" onclick="showReportOutage()">+ Report outage</button>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div id="techBadge" style="display:flex;align-items:center;gap:8px">
+        <span class="tchip" id="techChip">— Not logged in —</span>
+        <button id="logoutBtn" onclick="lsLogout()" style="display:none;background:none;border:0.5px solid var(--border2);border-radius:20px;padding:4px 10px;color:var(--dim2);font-size:10px;font-weight:600;cursor:pointer;font-family:var(--mono);transition:all .15s">Sign Out</button>
+      </div>
+      </div><!-- /techBadge wrapper -->
+    </div>
+  </div>
+  <div id="syncBar">
+    <span><span class="sdot" id="sdot"></span><span id="stxt">Initializing…</span></span>
+    <span id="stime"></span>
+  </div>
+  <main>
+<!-- ── DASHBOARD ── -->
+<div id="pg-dashboard">
+  <!-- Welcome strip -->
+  <div id="whoBanner" style="display:none;align-items:center;gap:12px;margin-bottom:16px;padding:12px 16px;background:var(--s1);border:1px solid var(--border);border-radius:var(--radius)" class="row">
+    <span style="font-size:28px" id="bannerAv">👤</span>
+    <div style="flex:1">
+      <div style="font-size:16px;font-weight:700" id="bannerName">—</div>
+      <div class="dim" id="bannerRole">—</div>
+    </div>
+    <button class="btn bgh bsm" onclick="lsLogout()">Sign Out</button>
+  </div>
+
+  <!-- Control Room hero -->
+  <div id="ctrlHero"></div>
+
+  <!-- Key stats row -->
+  <div class="stats" id="statsRow" style="margin-bottom:16px"></div>
+
+  <!-- Two column layout on desktop -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px" class="dash-2col">
+
+    <!-- Active Outages -->
+    <div class="panel" style="margin-bottom:0">
+      <div class="ph row jbet">
+        <span class="pt">Active Outages</span>
+        <button class="btn ba bsm" onclick="go('fixtures')">View All →</button>
+      </div>
+      <div class="pb" id="activeOut"></div>
+    </div>
+
+    <!-- Open Tech Requests -->
+    <div class="panel" style="margin-bottom:0">
+      <div class="ph row jbet">
+        <span class="pt">Tech Requests</span>
+        <button class="btn bb bsm" onclick="go('requests')">View All →</button>
+      </div>
+      <div class="pb" id="dash-requests"></div>
+    </div>
+
+  </div>
+
+  <!-- Two column layout row 2 -->
+  <div style="display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:14px" class="dash-2col">
+
+    <!-- Maintenance due -->
+    <div class="panel" style="margin-bottom:0">
+      <div class="ph row jbet">
+        <span class="pt">Maintenance Due</span>
+        <button class="btn bb bsm" onclick="go('maintenance')">View All →</button>
+      </div>
+      <div class="pb" id="maintDue"></div>
+    </div>
+
+  </div>
+
+  <!-- Recent Activity — full width -->
+  <div class="panel" style="margin-bottom:14px">
+    <div class="ph"><span class="pt">Recent Activity</span></div>
+    <div class="pb" style="padding:0" id="recentAct"></div>
+  </div>
+
+  <!-- Phase 5: Admin alerts panel -->
+  <div class="panel" style="margin-bottom:14px" data-perm="admin">
+    <div class="ph row jbet">
+      <span class="pt">🔔 Admin Alerts</span>
+      <button class="btn bg bsm" onclick="exportReport()">📄 Export Report</button>
+    </div>
+    <div class="pb" id="dash-admin-alerts"></div>
+  </div>
+
+  <!-- Automatic alert digest controls -->
+  <div class="panel" style="margin-bottom:14px" data-perm="admin" id="alertCtl"></div>
+
+  <!-- Admin-only actions -->
+  <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+    <button class="btn bgh bsm" data-perm="master" onclick="requirePin(resetAllData)" style="border-color:var(--red);color:var(--red)">⚠️ Reset All Data</button>
+  </div>
+</div>
+
+<!-- ── SERVICE DAY ── -->
+<div id="pg-sunday" style="display:none">
+  <div id="sundayRoot"></div>
+</div>
+
+<!-- ── FIXTURES ── -->
+<div id="pg-fixtures" style="display:none">
+  <!-- Header -->
+  <div class="row jbet mb16">
+    <div>
+      <h2 class="fw9 tu ls2" style="font-size:14px">Stage Fixtures</h2>
+      <div class="dim" style="margin-top:3px">All lighting fixtures and their current status</div>
+    </div>
+    <div class="row gap8">
+      <select id="fixFilter" onchange="if(window._fixTab==='list')renderFix()" style="width:auto;padding:7px 12px;font-size:11px;border-radius:8px;border:1px solid var(--border2);background:var(--s1);color:var(--text);font-family:var(--mono)">
+        <option value="all">All Fixtures</option>
+        <option value="out">🔴 Out Only</option>
+        <option value="ok">✅ OK Only</option>
+        <option value="maint">🔧 Maint Due</option>
+      </select>
+      <button class="btn bgh" data-perm="admin" onclick="downloadImportTemplate('fixtures')">📄 Template</button>
+      <button class="btn bgh" data-perm="admin" onclick="openImportModal('fixtures')">⬆️ Import</button>
+      <button class="btn ba" data-perm="admin" onclick="openM('addFixture')">+ Add Fixture</button>
+    </div>
+  </div>
+  <!-- Summary stat strip -->
+  <div id="fix-stats-strip" class="stats mb16"></div>
+  <!-- View tabs -->
+  <div class="tabs" style="margin-bottom:14px">
+    <button class="tab active" id="fixtab-list" onclick="setFixTab('list',this)">📋 List</button>
+    <button class="tab" id="fixtab-map" onclick="setFixTab('map',this)">🗺️ Map</button>
+  </div>
+  <!-- List view -->
+  <div id="fix-list-view">
+    <div id="fixtCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px"></div>
+    <table style="display:none"><tbody id="fixtTbl"></tbody></table>
+  </div>
+  <!-- Map view -->
+  <div id="fix-map-view" style="display:none">
+    <div style="background:#fff;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
+      <!-- Map toolbar -->
+      <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--dim2);letter-spacing:1px;text-transform:uppercase">Venue Map</span>
+        <div style="display:flex;gap:6px;margin-left:auto;flex-wrap:wrap" id="map-toolbar">
+          <div style="display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;color:var(--dim2)">
+            <span style="width:10px;height:10px;border-radius:50%;background:#3B6D11;display:inline-block"></span>OK
+            <span style="width:10px;height:10px;border-radius:50%;background:#A32D2D;display:inline-block;margin-left:6px"></span>OUT
+            <span style="width:10px;height:10px;border-radius:50%;background:#BA7517;display:inline-block;margin-left:6px"></span>MAINT
+            <span style="width:10px;height:10px;border-radius:50%;background:#888;display:inline-block;margin-left:6px"></span>UNPLACED
+          </div>
+          <button class="btn bgh bsm" onclick="mapZoom(1.2)">＋</button>
+          <button class="btn bgh bsm" onclick="mapZoom(0.8)">－</button>
+          <button class="btn bgh bsm" onclick="mapResetView()">⤢ Fit</button>
+          <button class="btn bgh bsm" data-perm="admin" onclick="openMapZoneEditor()">🏗️ Zones</button>
+          <button class="btn bgh bsm" data-perm="admin" id="map-unplaced-btn" onclick="toggleUnplacedPanel()" style="display:none"></button>
+        </div>
+      </div>
+      <!-- Canvas wrapper -->
+      <div id="map-canvas-wrap" style="position:relative;overflow:hidden;height:520px;background:#f8f9fa;cursor:grab;user-select:none">
+        <svg id="map-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <pattern id="map-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e8eaed" stroke-width="1"/>
+            </pattern>
+          </defs>
+          <g id="map-grid-layer"><rect width="4000" height="4000" x="-2000" y="-2000" fill="url(#map-grid)"/></g>
+          <g id="map-zones-layer"></g>
+          <g id="map-fixtures-layer"></g>
+        </svg>
+        <!-- Unplaced fixtures tray -->
+        <div id="map-unplaced-tray" style="display:none;position:absolute;bottom:0;left:0;right:0;background:rgba(255,255,255,.96);border-top:1px solid var(--border);padding:10px 14px;max-height:140px;overflow-y:auto">
+          <div style="font-family:var(--mono);font-size:9px;color:var(--dim2);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">Drag onto map to place · <span id="unplaced-count"></span></div>
+          <div id="unplaced-fixtures-list" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── INVENTORY ── -->
+<div id="pg-inventory" style="display:none">
+  <!-- Header -->
+  <div class="row jbet mb16">
+    <div>
+      <h2 class="fw9 tu ls2" style="font-size:14px">Bulb Inventory</h2>
+      <div class="dim" style="margin-top:3px">Stock levels, orders and individual bulb tracking</div>
+    </div>
+    <div class="row gap8">
+      <button class="btn bgh" onclick="printLabels()">🖨️ Labels</button>
+      <button class="btn bgh" onclick="exportCSV('inventory')">⬇️ Export</button>
+      <button class="btn bgh" data-perm="admin" onclick="downloadImportTemplate('inventory')">📄 Template</button>
+      <button class="btn bgh" data-perm="admin" onclick="openImportModal('inventory')">⬆️ Import</button>
+      <button class="btn bgh" data-perm="admin" onclick="recalcStockFromRegistry()">🔄 Recalc from Registry</button>
+      <button class="btn br bsm" data-perm="master" onclick="requirePin(clearAllInventory)" style="font-size:10px">🗑️</button>
+      <button class="btn ba" data-perm="admin" onclick="openM('receiveBulbs')">+ Receive Batch</button>
+    </div>
+  </div>
+  <!-- Summary stat strip -->
+  <div id="inv-stats-strip" class="stats mb16"></div>
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="invTab('stock',this)">Current Stock</button>
+    <button class="tab" onclick="invTab('orders',this)">Order History</button>
+    <button class="tab" onclick="invTab('usage',this)">Usage Log</button>
+    <button class="tab" onclick="invTab('used',this)">♻️ Used Bulbs</button>
+    <button class="tab" onclick="invTab('registry',this)">🏷️ Bulb Registry</button>
+  </div>
+  <!-- Stock tab — card grid -->
+  <div id="it-stock">
+    <div id="stockCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px"></div>
+    <table style="display:none"><tbody id="stockTbl"></tbody></table>
+  </div>
+  <!-- Orders tab -->
+  <div id="it-orders" style="display:none"><div class="panel"><div class="pb" style="padding:0"><table class="tbl">
+    <thead><tr><th>Date</th><th>Bulb Type</th><th>Qty</th><th>Supplier</th><th>Received By</th><th>Notes</th></tr></thead>
+    <tbody id="ordersTbl"></tbody>
+  </table></div></div></div>
+  <!-- Usage tab -->
+  <div id="it-usage" style="display:none"><div class="panel"><div class="pb" style="padding:0"><table class="tbl">
+    <thead><tr><th>Date</th><th>Bulb Type</th><th>Qty</th><th>Fixture</th><th>Technician</th><th>Bulb ID</th><th>Condition</th></tr></thead>
+    <tbody id="usageTbl"></tbody>
+  </table></div></div></div>
+  <!-- Registry tab -->
+  <div id="it-registry" style="display:none">
+    <div class="row jbet mb12">
+      <p class="dim">Every individual bulb label — full install/pull history per label.</p>
+      <div class="row gap8">
+        <select id="regFilter" onchange="renderBulbRegistry()" style="font-size:11px;padding:5px 8px;width:auto;border-radius:6px;border:1px solid var(--border2);background:var(--s1);color:var(--text);font-family:var(--mono)">
+          <option value="all">All Bulbs</option>
+          <option value="unassigned">Printed / Not Scanned In</option>
+          <option value="in_stock">In Stock</option>
+          <option value="installed">Installed</option>
+          <option value="pulled">Pulled</option>
+          <option value="disposed">Disposed</option>
+        </select>
+        <button class="btn bgh bsm" data-perm="master" onclick="requirePin(clearBulbRegistry)" style="border-color:var(--red);color:var(--red)">🗑️ Clear</button>
+      </div>
+    </div>
+    <div class="panel"><div class="pb" style="padding:0"><table class="tbl">
+      <thead><tr><th>Bulb ID</th><th>Type</th><th>Status</th><th>Location</th><th>Installs</th><th>Created</th><th>Last Event</th><th>Life</th><th></th></tr></thead>
+      <tbody id="regTbl"></tbody>
+    </table></div></div>
+  </div>
+  <!-- Used Bulbs tab -->
+  <div id="it-used" style="display:none">
+    <div class="row jbet mb12">
+      <p class="dim">Bulbs pulled from fixtures — available for reuse or disposal.</p>
+      <button class="btn ba bsm" onclick="openAddUsedBulbModal()">+ Add Used Bulb</button>
+    </div>
+    <div class="panel"><div class="pb" style="padding:0"><table class="tbl">
+      <thead><tr><th>Bulb ID</th><th>Type</th><th>Pulled From</th><th>Date Pulled</th><th>Condition</th><th>Status</th><th>History</th><th></th></tr></thead>
+      <tbody id="usedBulbsTbl"></tbody>
+    </table></div></div>
+  </div>
+</div>
+
+<!-- ── HISTORY ── -->
+<div id="pg-history" style="display:none">
+  <div class="row jbet mb14">
+    <h2 class="fw9 tu ls2" style="font-size:14px">Outage History</h2>
+    <button class="btn bgh" onclick="exportCSV('history')">⬇️ Export CSV</button>
+  </div>
+  <div class="panel"><div class="pb" style="padding:0"><table class="tbl">
+    <thead><tr><th>Date / Time</th><th>Fixture</th><th>Bulb Type</th><th>Reported By</th><th>Resolved By</th><th>Status</th><th>Down Time</th></tr></thead>
+    <tbody id="histTbl"></tbody>
+  </table></div></div>
+</div>
+
+<!-- ── SCAN ── -->
+<div id="pg-scan" style="display:none">
+  <div style="max-width:460px;margin:0 auto">
+    <div class="panel">
+      <div class="ph"><span class="pt">📷 Scan QR / Barcode</span></div>
+      <div class="pb">
+        <div id="noTechWarn" style="display:none;background:var(--rglow);border:1px solid rgba(224,60,60,.3);border-radius:6px;padding:12px;margin-bottom:12px;font-size:13px;color:var(--red)">
+          ⚠️ Select your technician first.
+          <button class="btn br bsm" style="margin-top:8px;display:block" onclick="openM('whoAmI')">Select Technician</button>
+        </div>
+        <button class="btn bb" style="width:100%;justify-content:center;margin-bottom:10px" onclick="toggleCamera()" id="camBtn">📷 Start Camera Scanner</button>
+        <div id="qr-reader" style="display:none;margin-bottom:12px"></div>
+        <div id="scanResult" style="display:none;background:var(--gglow);border:1px solid rgba(40,201,122,.3);border-radius:6px;padding:12px;margin-bottom:12px;font-size:13px;color:var(--green)"></div>
+        <p class="dim" style="text-align:center;margin:12px 0">— or enter ID manually —</p>
+        <div class="fg mb12"><label>Fixture ID or Bulb Sticker Code</label><input type="text" id="manualId" placeholder="e.g. FX-001 or BLB-A-003" oninput="this.value=this.value.toUpperCase()" autocomplete="off"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <button class="btn br" onclick="scanAction('outage')">🔴 Report Outage</button>
+          <button class="btn bg" onclick="scanAction('replace')">✅ Mark Replaced</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <button class="btn bgh" onclick="scanAction('scanIn')">📥 Bulb Scan IN</button>
+          <button class="btn bgh" onclick="go('inventory')">📤 View Inventory</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── CREW ── -->
+<div id="pg-crew" style="display:none">
+  <div class="row jbet mb14">
+    <h2 class="fw9 tu ls2" style="font-size:14px">Crew / Technicians</h2>
+    <button class="btn ba" data-perm="admin" onclick="openM('addTech')">+ Add Technician</button>
+  </div>
+  <div id="crew-dept-filter-wrap"></div>
+  <div class="tcards" id="crewCards"></div>
+  <!-- Availability panel -->
+  <div class="panel mb14">
+    <div class="ph row jbet"><span class="pt">📅 Sunday Availability</span><span class="dim" style="font-size:11px">Next 8 Sundays</span></div>
+    <div class="pb" id="availPanel"></div>
+  </div>
+  <div class="panel">
+    <div class="ph"><span class="pt">📊 Activity by Technician</span></div>
+    <div class="pb" style="padding:0"><table class="tbl">
+      <thead><tr><th>Technician</th><th>Outages Reported</th><th>Bulbs Replaced</th><th>Avg Response Time</th><th>Last Active</th></tr></thead>
+      <tbody id="crewStats"></tbody>
+    </table></div>
+  </div>
+</div>
+
+<!-- ── SCHEDULE ── -->
+<div id="pg-schedule" style="display:none">
+  <div class="row jbet mb14">
+    <div>
+      <h2 class="fw9 tu ls2" style="font-size:14px">Schedule</h2>
+      <div class="dim" style="margin-top:4px">Services, special events, rehearsals & crew assignments</div>
+    </div>
+    <div class="row gap8">
+      <button data-perm="admin" class="btn bg bsm" onclick="openAddRehearsalModal()">+ Rehearsal</button>
+      <button data-perm="admin" class="btn ba bsm" onclick="openAddSpecialEventModal()">+ Special Event</button>
+      <button data-perm="admin" class="btn bb bsm" onclick="manualSendScheduleEmail()" title="Send schedule email to assigned crew for the upcoming Sunday">📧 Send This Week</button>
+      <button data-perm="admin" class="btn bb bsm" onclick="manualSendScheduleSMS()" title="Text the schedule to assigned crew for the upcoming Sunday">📱 Text This Week</button>
+    </div>
+  </div>
+
+  <!-- Quick stats -->
+  <div class="stats mb14" id="sched-quickstats"></div>
+
+  <div class="row jbet mb14" style="flex-wrap:wrap;gap:10px">
+    <!-- Service tabs -->
+    <div class="tabs" id="sched-service-tabs" style="margin-bottom:0">
+      <button class="tab active" onclick="schedSetServiceTab('service',this)">📅 Services</button>
+      <button class="tab" onclick="schedSetServiceTab('rehearsals',this)">🎸 Rehearsals</button>
+    </div>
+    <!-- View toggle (service tab only) -->
+    <div class="row gap8" id="sched-view-toggle-wrap">
+      <select id="schedYear" onchange="renderSchedule()" style="width:auto;padding:6px 10px;font-size:11px;display:none"></select>
+      <div class="tabs" id="sched-view-toggle" style="margin-bottom:0">
+        <button class="tab active" onclick="schedSetViewMode('calendar',this)">🗓 Calendar</button>
+        <button class="tab" onclick="schedSetViewMode('list',this)">☰ List</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- No scheduler warning -->
+  <div id="schedNoPerms" style="display:none;background:var(--bglow);border:1px solid rgba(61,155,233,.3);border-radius:8px;padding:14px;margin-bottom:14px;font-size:13px">
+    👁️ <strong>View only</strong> — only crew members with scheduler permission can edit the schedule.
+  </div>
+
+  <!-- Dept filter -->
+  <div id="sched-dept-filter-wrap"></div>
+
+  <!-- Calendar month nav (calendar mode only) -->
+  <div id="schedCalNav" class="row jbet mb10" style="display:none">
+    <div class="row gap6">
+      <button class="btn bgh bsm" onclick="schedCalShift(-1)">‹ Prev</button>
+      <button class="btn bgh bsm" onclick="schedCalToday()">Today</button>
+    </div>
+    <div class="fw9" id="schedCalMonthLabel" style="font-family:var(--head);font-size:16px;letter-spacing:1px;text-transform:uppercase"></div>
+    <button class="btn bgh bsm" onclick="schedCalShift(1)">Next ›</button>
+  </div>
+
+  <!-- Schedule grid -->
+  <div id="schedGrid"></div>
+
+  <!-- Swap Requests panel (admin only) -->
+  <div data-perm="admin" style="margin-top:20px">
+    <div class="row jbet mb10">
+      <div class="fw7" style="font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--dim2)">↔️ Pending Swap Requests</div>
+    </div>
+    <div id="swap-list"></div>
+  </div>
+</div>
+
+<!-- ── NFC MANAGER ── -->
+
+<!-- ── ASSET CHECKOUT ── -->
+
+<!-- ── TECH REQUESTS ── -->
+
+<!-- ── TRAINING HUB ── -->
+<div id="pg-training" style="display:none">
+  <div class="row jbet mb14">
+    <div>
+      <h2 class="fw9 tu ls2" style="font-size:14px">Training Hub</h2>
+      <div class="dim" style="margin-top:4px">Guides, resources and onboarding for every department</div>
+    </div>
+    <button class="btn ba" data-perm="admin" onclick="openM('addTrainingModule')">+ Add Module</button>
+  </div>
+  <div class="dept-filter-row" id="training-dept-filter"></div>
+  <div id="training-list"></div>
+</div>
+
+<!-- ── CREW PROFILES ── -->
+<div id="pg-profiles" style="display:none">
+  <div class="row jbet mb14">
+    <div>
+      <h2 class="fw9 tu ls2" style="font-size:14px">Crew Profiles</h2>
+      <div class="dim" style="margin-top:4px">Skills, certifications and service history per crew member</div>
+    </div>
+  </div>
+  <div class="dept-filter-row" id="profiles-dept-filter"></div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px" id="profiles-grid"></div>
+  <!-- Profile detail panel -->
+  <div id="profile-detail" style="display:none;margin-top:16px"></div>
+</div>
+
+<div id="pg-requests" style="display:none">
+  <div class="row jbet mb14">
+    <div>
+      <h2 class="fw9 tu ls2" style="font-size:14px">Tech Requests</h2>
+      <div class="dim" style="margin-top:4px">AV and technical needs submitted by the team</div>
+    </div>
+    <div class="row gap6">
+      <button class="btn bgh" data-perm="admin" onclick="copyExternalRequestLink()">🌐 Copy Public Link</button>
+      <button class="btn ba" onclick="openM('addRequest')">+ New Request</button>
+    </div>
+  </div>
+  <div class="stats mb16" id="req-stats"></div>
+  <div class="tabs" id="req-tabs">
+    <button class="tab active" onclick="reqSetTab('open',this)">Open</button>
+    <button class="tab" onclick="reqSetTab('progress',this)">In Progress</button>
+    <button class="tab" onclick="reqSetTab('done',this)">Completed</button>
+    <button class="tab" onclick="reqSetTab('all',this)">All</button>
+  </div>
+  <div id="req-list"></div>
+</div>
+
+<!-- ── ANNOUNCEMENTS ── -->
+<div id="pg-announcements" style="display:none">
+  <div class="row jbet mb14">
+    <div>
+      <h2 class="fw9 tu ls2" style="font-size:14px">Announcements</h2>
+      <div class="dim" style="margin-top:4px">Team-wide and department notices</div>
+    </div>
+    <button class="btn ba" data-perm="admin" onclick="openM('addAnnouncement')">+ Post</button>
+  </div>
+  <div id="ann-list"></div>
+</div>
+
+<!-- ── FEEDBACK INBOX (admin only) ── -->
+<div id="pg-feedbackadmin" style="display:none">
+  <div class="row jbet mb14">
+    <div>
+      <h2 class="fw9 tu ls2" style="font-size:14px">💬 Feedback Inbox</h2>
+      <div class="dim" style="margin-top:4px">Crew feedback and suggestions — admin only</div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn ba bsm" onclick="document.getElementById('m-feedback').style.display='flex'">Send feedback</button>
+      <button class="btn br bsm" data-perm="admin" onclick="clearFeedback()">🗑️ Clear All</button>
+    </div>
+  </div>
+  <div id="feedback-list"></div>
+</div>
+
+<!-- ── AUDIT LOG (admin only) ── -->
+<div id="pg-auditlog" style="display:none">
+  <div class="row jbet mb14">
+    <div>
+      <h2 class="fw9 tu ls2" style="font-size:14px">📋 Audit Log</h2>
+      <div class="dim" style="margin-top:4px">Admin action history — last 100 events</div>
+    </div>
+    <button class="btn bg bsm" onclick="exportReport()">📄 Export Report</button>
+  </div>
+  <div id="audit-list"></div>
+</div>
+<div id="pg-checkout" style="display:none">
+  <div class="row jbet mb14">
+    <div>
+      <h2 class="fw9 tu ls2" style="font-size:14px">Asset Checkout</h2>
+      <div class="dim" style="margin-top:4px">Track who has what gear and when it's due back</div>
+    </div>
+    <div class="row gap8">
+      <button class="btn bgh" data-perm="admin" onclick="downloadImportTemplate('gear')">📄 Template</button>
+      <button class="btn bgh" data-perm="admin" onclick="openImportModal('gear')">⬆️ Import Gear</button>
+      <button class="btn ba" data-perm="admin" onclick="openM('addGearItem')">+ Add Gear Item</button>
+      <button class="btn bb" onclick="openM('checkoutGear')">📤 Check Out</button>
+    </div>
+  </div>
+  <!-- Summary cards -->
+  <div class="stats" style="margin-bottom:16px" id="co-stats"></div>
+  <!-- Filter tabs -->
+  <div class="tabs" id="co-tabs">
+    <button class="tab active" onclick="coSetTab('active',this)">Checked Out</button>
+    <button class="tab" onclick="coSetTab('returned',this)">Returned</button>
+    <button class="tab" onclick="coSetTab('gear',this)">Gear Library</button>
+    <button class="tab" onclick="coSetTab('incidents',this)">⚠️ Incidents</button>
+  </div>
+  <div id="co-list"></div>
+</div>
+
+<!-- ── MAINTENANCE LOG ── -->
+<div id="pg-maintenance" style="display:none">
+  <div class="row jbet mb14">
+    <div>
+      <h2 class="fw9 tu ls2" style="font-size:14px">Maintenance Log</h2>
+      <div class="dim" style="margin-top:4px">Service history and upcoming maintenance for all gear</div>
+    </div>
+    <button class="btn ba" data-perm="admin" onclick="openM('addMaintEntry')">+ Log Service</button>
+  </div>
+  <!-- Summary cards -->
+  <div class="stats" style="margin-bottom:16px" id="maint-stats"></div>
+  <!-- Filter tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="maintSetTab('due',this)">Due / Overdue</button>
+    <button class="tab" onclick="maintSetTab('all',this)">All Gear</button>
+    <button class="tab" onclick="maintSetTab('log',this)">Service History</button>
+  </div>
+  <div id="maint-list"></div>
+</div>
+
+<div id="pg-nfc" style="display:none">
+  <div class="row jbet mb14">
+    <div>
+      <h2 class="fw9 tu ls2" style="font-size:14px">NFC Tags</h2>
+      <div class="dim" style="margin-top:4px">Tap-to-scan tags for fixtures</div>
+    </div>
+    <button class="btn bb bsm" onclick="testWebNFC()">📡 Test Web NFC</button>
+  </div>
+  <!-- NFC Option 1: URL based -->
+  <div class="panel mb14">
+    <div class="ph"><span class="pt">📲 Option 1 — URL Tags (iPhone + Android)</span></div>
+    <div class="pb">
+      <p class="dim mb12">Program NFC sticker tags with a URL. When tapped, the phone opens your app and auto-loads the fixture. Works on both iPhone and Android without any special setup.</p>
+      <p class="dim mb14">Buy: Search <strong>"NFC sticker tags NTAG213"</strong> on Amazon — ~$10 for 30 tags.</p>
+      <div class="fw7 mb10" style="font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--dim2)">Program your NFC tags — one per fixture</div>
+      <div style="display:flex;flex-direction:column;gap:8px" id="nfcFixtureList"></div>
+    </div>
+  </div>
+  <!-- NFC Option 2: Web NFC API -->
+  <div class="panel mb14">
+    <div class="ph"><span class="pt">📡 Option 2 — Web NFC (Android Chrome only)</span></div>
+    <div class="pb">
+      <p class="dim mb12">Use your phone to write NFC tags directly from this app and read them without opening a URL. Android Chrome only — does not work on iPhone.</p>
+      <div id="webNFCStatus" style="margin-bottom:12px"></div>
+      <div class="fg mb12">
+        <label>Select Fixture to Write</label>
+        <select id="nfcFixtureSel" style="width:100%">
+          <option value="">— Select fixture —</option>
+        </select>
+      </div>
+      <div class="row gap8">
+        <button class="btn bb" onclick="writeNFCTag()">✍️ Write NFC Tag</button>
+        <button class="btn bgh" onclick="readNFCTag()">📡 Read Tag</button>
+      </div>
+      <div id="nfcResult" style="display:none;margin-top:12px;background:var(--gglow);border:1px solid rgba(40,201,122,.3);border-radius:6px;padding:12px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SHOW LOG ── -->
+<!-- ── CHECKLIST ── -->
+<div id="pg-checklist" style="display:none">
+  <div class="row jbet mb14">
+    <div>
+      <h2 class="fw9 tu ls2" style="font-size:14px">Pre-Show Checklist</h2>
+      <div class="dim" style="margin-top:4px">Select a station to view and complete its checklist</div>
+    </div>
+    <div class="row gap8">
+      <button class="btn bgh bsm" onclick="resetSignoffs();resetChecklist()">↺ Reset All</button>
+    </div>
+  </div>
+  <!-- Dept sign-off bar -->
+  <div class="panel mb14" id="cl-signoff-panel">
+    <div class="ph row jbet"><span class="pt">Dept Sign-Off</span><span class="dim" style="font-size:11px">Tap your dept to sign off</span></div>
+    <div id="cl-signoff-list"></div>
+  </div>
+
+  <!-- Split layout: station list + checklist panel -->
+  <div style="display:grid;grid-template-columns:220px 1fr;gap:14px;align-items:start" id="checklistLayout">
+
+    <!-- LEFT: Station selector -->
+    <div>
+      <div class="panel">
+        <div class="ph"><span class="pt">Stations</span></div>
+        <div id="clStationList" style="padding:8px"></div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Checklist for selected station -->
+    <div id="clMainPanel">
+      <div class="panel">
+        <div class="pb" style="text-align:center;padding:40px;color:var(--dim2)">
+          <div style="font-size:36px;margin-bottom:10px">👈</div>
+          <div>Select a station to start</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SETTINGS ── -->
+<div id="pg-settings" style="display:none">
+  <div class="row jbet mb14">
+    <h2 class="fw9 tu ls2" style="font-size:14px">Settings</h2>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn bgh" onclick="go('nfc')">NFC tags</button>
+      <button class="btn bgh" onclick="openChangelog()">What's new</button>
+    </div>
+  </div>
+  <div class="grid2">
+
+    <!-- ── Branding ── -->
+    <div class="panel" data-perm="admin">
+      <div class="ph"><span class="pt">🏷️ Branding</span></div>
+      <div class="pb">
+        <p class="dim mb12">Customize the app name and logo emoji shown on the login screen and sidebar.</p>
+        <div class="fgrid" style="grid-template-columns:1fr 80px">
+          <div class="fg mb12"><label>Organization Name</label><input id="s-orgName" placeholder="e.g. KCC Technical"></div>
+          <div class="fg mb12"><label>Logo Emoji</label><input id="s-orgEmoji" placeholder="⚡" style="text-align:center;font-size:20px" maxlength="2"></div>
+        </div>
+        <div class="fg mb12"><label>Tagline / Subtitle (optional)</label><input id="s-orgTagline" placeholder="e.g. Production & Lighting Team"></div>
+        <button class="btn ba" onclick="saveBranding()">Save Branding</button>
+      </div>
+    </div>
+
+    <!-- ── Accent Colour ── -->
+    <div class="panel" data-perm="admin">
+      <div class="ph"><span class="pt">🎨 Accent Colour</span></div>
+      <div class="pb">
+        <p class="dim mb12">Change the primary colour used for buttons, badges, and highlights throughout the app.</p>
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:14px" id="s-colourSwatches"></div>
+        <div class="row gap8 mb12">
+          <div class="fg" style="flex:1"><label>Custom Hex</label><input id="s-accentHex" placeholder="#0F6E56" maxlength="7" oninput="previewAccent(this.value)"></div>
+          <div style="width:42px;height:42px;border-radius:8px;margin-top:22px;border:1px solid var(--border2)" id="s-accentPreview"></div>
+        </div>
+        <button class="btn ba" onclick="saveAccentColour()">Apply Colour</button>
+      </div>
+    </div>
+
+    <!-- ── Dashboard Widgets ── -->
+    <div class="panel" data-perm="admin">
+      <div class="ph"><span class="pt">📊 Dashboard Widgets</span></div>
+      <div class="pb">
+        <p class="dim mb12">Choose which stat cards and panels appear on the dashboard.</p>
+        <div id="s-widgetToggles" style="display:flex;flex-direction:column;gap:10px"></div>
+        <button class="btn ba" style="margin-top:14px" onclick="saveWidgetPrefs()">Save Widgets</button>
+      </div>
+    </div>
+
+    <!-- ── Gear Categories ── -->
+    <div class="panel" data-perm="admin">
+      <div class="ph"><span class="pt">📦 Gear Categories</span></div>
+      <div class="pb">
+        <p class="dim mb12">Categories available when adding gear items to the asset library.</p>
+        <div id="s-gearCatsEl" style="margin-bottom:12px"></div>
+        <div class="row gap8">
+          <input id="s-newGearCat" placeholder="e.g. Cables, Backline, Rigging…" style="flex:1">
+          <button class="btn ba bsm" onclick="addGearCat()">+ Add</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Departments ── -->
+    <div class="panel" data-perm="admin">
+      <div class="ph"><span class="pt">🏢 Departments</span></div>
+      <div class="pb">
+        <p class="dim mb12">Departments crew members can be assigned to.</p>
+        <div id="s-deptsEl" style="margin-bottom:12px"></div>
+        <div class="row gap8">
+          <input id="s-newDept" placeholder="e.g. Lighting, Sound, Video…" style="flex:1">
+          <input id="s-newDeptColor" type="color" value="#0F6E56" style="width:42px;height:38px;padding:2px 4px;border-radius:6px;border:1px solid var(--border2);cursor:pointer">
+          <button class="btn ba bsm" onclick="addDept()">+ Add</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Vendors & Parts Suppliers ── -->
+    <div class="panel" data-perm="admin">
+      <div class="ph"><span class="pt">🚚 Vendors & Parts Suppliers</span></div>
+      <div class="pb">
+        <p class="dim mb12">Where to order bulbs, cables, and gear from. Link a vendor to a fixture or gear item to see who to call when it needs replacing.</p>
+        <div id="s-vendorsEl" style="margin-bottom:12px"></div>
+        <button class="btn ba bsm" onclick="openAddVendor()">+ Add Vendor</button>
+      </div>
+    </div>
+
+    <!-- ── Overdue Reminders ── -->
+    <div class="panel" data-perm="admin">
+      <div class="ph"><span class="pt">⏰ Overdue Reminders</span></div>
+      <div class="pb">
+        <p class="dim mb12">When to flag gear checkouts as overdue and send email reminders.</p>
+        <div class="fg mb12"><label>Grace period after due date (days)</label><input type="number" id="s-overdueGrace" placeholder="0" min="0" max="30"></div>
+        <div class="fg mb12"><label>Auto-reminder after overdue (days)</label><input type="number" id="s-reminderAfter" placeholder="3" min="1" max="30"></div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <input type="checkbox" id="s-emailReminders" style="width:18px;height:18px;cursor:pointer">
+          <label for="s-emailReminders" style="font-size:13px;letter-spacing:0;text-transform:none;color:var(--text);cursor:pointer">Send email reminders automatically</label>
+        </div>
+        <button class="btn ba" onclick="saveOverdueSettings()">Save</button>
+      </div>
+    </div>
+
+    <!-- ── Training Options ── -->
+    <div class="panel" data-perm="admin">
+      <div class="ph"><span class="pt">🎓 Training Options</span></div>
+      <div class="pb">
+        <p class="dim mb12">Skill tags crew members can be assigned.</p>
+        <div id="trainingOptsEl" style="margin-bottom:12px"></div>
+        <div class="row gap8">
+          <input id="newTrainingOpt" placeholder="e.g. Sound Engineering" style="flex:1">
+          <button class="btn ba bsm" onclick="addTrainingOption()">+ Add</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Schedule Roles ── -->
+    <div class="panel" data-perm="admin">
+      <div class="ph"><span class="pt">🎭 Schedule Roles</span></div>
+      <div class="pb">
+        <p class="dim mb12">Station roles available when scheduling crew.</p>
+        <div id="rolesListEl" style="margin-bottom:12px"></div>
+        <div class="row gap8">
+          <input id="newRoleName" placeholder="Role name e.g. Stage Manager" style="flex:1">
+          <input id="newRoleIcon" placeholder="🎙️" style="width:60px;text-align:center;font-size:18px" maxlength="2">
+          <button class="btn ba bsm" onclick="addScheduleRole()">+ Add</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Maintenance Defaults ── -->
+    <div class="panel" data-perm="admin">
+      <div class="ph"><span class="pt">🔧 Maintenance Defaults</span></div>
+      <div class="pb">
+        <p class="dim mb12">Default interval to flag fixtures for maintenance check.</p>
+        <div class="fg mb12"><label>Check interval (days)</label><input type="number" id="maintInterval" placeholder="90" min="1"></div>
+        <button class="btn ba" onclick="saveMaintSettings()">Save</button>
+      </div>
+    </div>
+
+    <!-- ── Push Notifications ── -->
+    <div class="panel">
+      <div class="ph"><span class="pt">🔔 Push Notifications</span></div>
+      <div class="pb">
+        <p class="dim mb12">Get browser notifications when a fixture goes out or stock runs low.</p>
+        <div id="notifStatus" class="mb12"></div>
+        <button class="btn bb" onclick="requestNotifPermission()">Enable Notifications</button>
+      </div>
+    </div>
+
+    <!-- ── Admin PIN ── -->
+    <div class="panel" data-perm="admin">
+      <div class="ph"><span class="pt">🔒 Admin PIN</span></div>
+      <div class="pb">
+        <p class="dim mb12">Protect reset and delete actions with a 4-digit PIN. Leave blank to disable.</p>
+        <div class="fg mb12"><label>Current PIN</label><input type="password" id="currentPin" placeholder="Enter current PIN or leave blank" maxlength="4"></div>
+        <div class="fg mb12"><label>New PIN (leave blank to remove)</label><input type="password" id="newPin" placeholder="New 4-digit PIN" maxlength="4"></div>
+        <button class="btn ba" data-perm="admin" onclick="savePin()">Save PIN</button>
+      </div>
+    </div>
+
+    <!-- ── Claim / Role Management ── -->
+    <div class="panel" id="claimMasterPanel">
+      <div class="ph"><span class="pt">👑 Claim Master Admin</span></div>
+      <div class="pb">
+        <p class="dim mb12">No master admin has been set yet. The person who claims this role will have full system control.</p>
+        <button class="btn ba" onclick="claimMasterAdmin()">👑 Claim Master Admin</button>
+      </div>
+    </div>
+    <div class="panel" data-perm="master">
+      <div class="ph"><span class="pt">💾 Backup &amp; Restore</span></div>
+      <div class="pb">
+        <p class="dim" style="margin-bottom:10px">Download a copy of everything in the app (crew, fixtures, stock, gear, schedules, history). Do this before any reset or big clean-up. Crew accounts and passwords are kept on the server, so a restore does not change them. The file still holds your crew's contact details, so keep it somewhere private.</p>
+        <div class="row gap8" style="flex-wrap:wrap">
+          <button class="btn ba" onclick="downloadBackup()">Download backup</button>
+          <label class="btn bgh" style="cursor:pointer">Restore from file<input type="file" accept="application/json,.json" style="display:none" onchange="restoreBackup(this)"></label>
+        </div>
+      </div>
+    </div>
+    <div class="panel" data-perm="master">
+      <div class="ph"><span class="pt">👑 Role Management</span></div>
+      <div class="pb">
+        <p class="dim mb12">Assign admin roles to crew members. Master admin only.</p>
+        <div id="roleMgmtList"></div>
+      </div>
+    </div>
+
+    <!-- ── Account ── -->
+    <div class="panel" style="border-color:rgba(224,60,60,.3)">
+      <div class="ph"><span class="pt">👤 Account</span></div>
+      <div class="pb">
+        <p class="dim mb12">Signed in as: <span id="settingsSignedInAs" style="color:var(--text);font-weight:700">—</span></p>
+        <button class="btn bgh" style="width:100%;justify-content:center;font-size:14px;padding:12px;margin-bottom:10px" onclick="openM('changeMyPw')">Change my password</button>
+        <button class="btn" style="background:var(--rglow);border:1px solid rgba(224,60,60,.4);color:var(--red);width:100%;justify-content:center;font-size:14px;padding:12px" onclick="lsLogout()">Sign Out &amp; Return to Login</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+</main>
+  </div><!-- /appContent -->
+</div><!-- /appShell -->
+
+<!-- Mobile bottom nav -->
+<div id="bottomNav" style="display:none">
+  <button class="bnn" id="bnn-dashboard" onclick="go(homePage())">
+    <span class="bni">
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+    </span>
+    <span>Home</span>
+  </button>
+  <button class="bnn" id="bnn-schedule" onclick="go('schedule')">
+    <span class="bni">
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="11" rx="1"/><path d="M5 1v4M11 1v4M2 7h12"/></svg>
+    </span>
+    <span>Schedule</span>
+  </button>
+  <button class="bnn" id="bnn-sunday" onclick="go('sunday')">
+    <span class="bni">
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6L13 13M3 13l1.4-1.4M11.6 4.4L13 3"/></svg>
+    </span>
+    <span>Sunday</span>
+  </button>
+  <button class="bnn" id="bnn-requests" onclick="go('requests')">
+    <span class="bni">
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 6h6M5 9h4"/></svg>
+    </span>
+    <span>Requests</span>
+  </button>
+  <button class="bnn" id="bnn-more" onclick="showMobileMenu()">
+    <span class="bni">
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><circle cx="2" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="14" cy="8" r="1.5"/></svg>
+    </span>
+    <span>More</span>
+  </button>
+</div>
+
+<!-- Mobile More menu overlay -->
+<div id="mobileMoreOverlay" onclick="hideMobileMenu()" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.4)"></div>
+<div id="mobileMoreMenu" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:201;background:var(--s1);border-top:1px solid var(--border);border-radius:20px 20px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));max-height:70vh;overflow-y:auto">
+  <div style="width:36px;height:4px;background:var(--border2);border-radius:2px;margin:0 auto 16px"></div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+    <button class="bnn" style="padding:10px 4px" onclick="go('crew');hideMobileMenu()">
+      <span class="bni"><svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a4 4 0 100 8A4 4 0 008 1zm0 10c-3 0-7 1.5-7 3v1h14v-1c0-1.5-4-3-7-3z"/></svg></span>
+      <span>Crew</span>
+    </button>
+    <button class="bnn" style="padding:10px 4px" onclick="go('checkout');hideMobileMenu()">
+      <span class="bni">📦</span>
+      <span>Gear</span>
+    </button>
+    <button class="bnn" style="padding:10px 4px" onclick="go('announcements');hideMobileMenu()">
+      <span class="bni">📢</span>
+      <span>Posts</span>
+    </button>
+    <button class="bnn" style="padding:10px 4px" onclick="go('training');hideMobileMenu()">
+      <span class="bni">📚</span>
+      <span>Training</span>
+    </button>
+    <button class="bnn" style="padding:10px 4px" onclick="go('maintenance');hideMobileMenu()">
+      <span class="bni">🔧</span>
+      <span>Maint.</span>
+    </button>
+    <button class="bnn" style="padding:10px 4px" onclick="go('fixtures');hideMobileMenu()">
+      <span class="bni">💡</span>
+      <span>Fixtures</span>
+    </button>
+    <button class="bnn" style="padding:10px 4px" onclick="go('inventory');hideMobileMenu()">
+      <span class="bni">📦</span>
+      <span>Stock</span>
+    </button>
+    <button class="bnn" style="padding:10px 4px" onclick="go('settings');hideMobileMenu()">
+      <span class="bni"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.5 1.5M11.5 11.5L13 13M3 13l1.5-1.5M11.5 4.5L13 3"/></svg></span>
+      <span>Settings</span>
+    </button>
+    <button class="bnn" style="padding:10px 4px;color:var(--red)" onclick="lsLogout();hideMobileMenu()">
+      <span class="bni"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6 8h8M11 5l3 3-3 3M10 3H3a1 1 0 00-1 1v8a1 1 0 001 1h7"/></svg></span>
+      <span>Sign Out</span>
+    </button>
+
+  </div><!-- /grid -->
+</div><!-- /mobileMoreMenu -->
+
+<!-- ══════════ MODALS ══════════ -->
+
+<div id="m-editSchedule" class="mover" style="display:none" onclick="mOut(event,'editSchedule')">
+  <div class="modal wide">
+    <div class="mh"><span class="mt" id="schedModalTitle">📅 Edit Sunday Schedule</span><button class="xb" onclick="closeM('editSchedule')">✕</button></div>
+    <div class="mb">
+      <div style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:16px">
+        <div class="dim" style="margin-bottom:4px;letter-spacing:1px">DATE</div>
+        <div style="font-size:18px;font-weight:900" id="schedModalDate">—</div>
+      </div>
+
+      <!-- Crew assignment grid -->
+      <div class="fg mb14">
+        <label>Crew Working This Sunday</label>
+        <div id="schedCrewGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:8px"></div>
+      </div>
+
+      <!-- Notes -->
+      <div class="fg mb14">
+        <label>Notes / Special Instructions</label>
+        <textarea id="schedNotes" placeholder="e.g. Full production, extra hands needed..." style="min-height:60px"></textarea>
+      </div>
+
+      <!-- Pre-show briefing notes -->
+      <div class="fg mb14">
+        <label>📋 Pre-Show Briefing Notes <span style="font-size:9px;color:var(--dim2);letter-spacing:0;text-transform:none;font-family:var(--mono)">(shown to crew at check-in)</span></label>
+        <textarea id="schedBriefing" placeholder="e.g. Sermon series: Grace & Truth. Song list in ProPresenter folder. Camera 2 has loose cable — check before service. Call time 8:00 AM sharp." style="min-height:80px"></textarea>
+      </div>
+
+      <!-- Order of service / Rundown -->
+      <div class="fg mb14">
+        <label>📝 Order of Service / Rundown <span style="font-size:9px;color:var(--dim2);letter-spacing:0;text-transform:none;font-family:var(--mono)">(setlist, service flow, cues)</span></label>
+        <textarea id="schedRundown" placeholder="e.g. Welcome · Worship (3 songs) · Announcements · Offering · Sermon · Response · Dismiss. Song keys: Way Maker (E), Goodness of God (G)..." style="min-height:90px"></textarea>
+      </div>
+
+      <div class="fg mb14">
+        <label>💡 Lighting looks <span style="font-size:9px;color:var(--dim2);letter-spacing:0;text-transform:none;font-family:var(--mono)">(scenes, cues per song)</span></label>
+        <textarea id="schedLooks" placeholder="e.g. Worship: warm wash 60%, backlight blue. Sermon: front white 80%. Offering: amber." style="min-height:60px"></textarea>
+      </div>
+      <div class="fg mb14">
+        <label>🎥 Camera positions</label>
+        <textarea id="schedCams" placeholder="e.g. Cam 1 wide center, Cam 2 stage left on pastor, Cam 3 handheld." style="min-height:60px"></textarea>
+      </div>
+      <div class="fg mb14">
+        <label>🎛️ Patch / audio notes</label>
+        <textarea id="schedPatch" placeholder="e.g. X32 scene 'Sunday', Ch 1-8 band, Ch 9 pastor lav, DMX universe 1 start 001." style="min-height:60px"></textarea>
+      </div>
+
+      <!-- Recurring template controls -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:10px 12px;background:var(--s2);border:1px solid var(--border);border-radius:6px;margin-bottom:14px">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--dim2);letter-spacing:1px;text-transform:uppercase;flex-shrink:0">Templates</span>
+        <select id="schedTemplateSelect" style="flex:1;min-width:120px;font-size:11px;padding:5px 8px">
+          <option value="">— Load a template —</option>
+        </select>
+        <button class="btn bgh bsm" onclick="loadScheduleTemplate()">Load</button>
+        <button class="btn bgh bsm" onclick="deleteScheduleTemplate()">Delete</button>
+        <button class="btn ba bsm" onclick="saveScheduleTemplate()">💾 Save as Template</button>
+      </div>
+
+      <!-- Emails auto-send every Thursday -->
+      <div style="padding:10px 12px;background:var(--bglow);border:1px solid rgba(61,155,233,.3);border-radius:6px;font-size:12px;color:var(--blue)">📧 Schedule emails automatically send every <strong>Thursday</strong> for the upcoming Sunday.</div>
+    </div>
+    <div class="mf">
+      <button class="btn bg bsm" onclick="openSwapRequestModal(_schedEditKey)" title="Request a shift swap with another crew member">↔️ Request Swap</button>
+      <button class="btn bgh" onclick="closeM('editSchedule')">Cancel</button>
+      <button class="btn ba" onclick="saveScheduleEntry()">Save Schedule</button>
+    </div>
+  </div>
+</div>
+
+<div id="m-whoAmI" class="mover" style="display:none" onclick="mOut(event,'whoAmI')">
+  <div class="modal">
+    <div class="mh"><span class="mt">👷 Log In</span><button class="xb" onclick="closeM('whoAmI')">✕</button></div>
+    <div class="mb">
+      <!-- Step 1: pick name -->
+      <div id="whoStep1">
+        <p class="dim mb12">Select your name to log in.</p>
+        <div class="tpg" id="whoGrid"></div>
+        <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+          <button class="btn bgh bsm" onclick="closeM('whoAmI');go('crew')">+ Add a new technician</button>
+        </div>
+      </div>
+      <!-- Step 2: enter password -->
+      <div id="whoStep2" style="display:none">
+        <div style="text-align:center;margin-bottom:16px">
+          <div style="font-size:36px" id="whoLoginAv">👤</div>
+          <div style="font-size:18px;font-weight:900;margin-top:6px" id="whoLoginName">—</div>
+          <div class="dim" id="whoLoginRole">—</div>
+        </div>
+        <div class="fg mb12">
+          <label>Password</label>
+          <input type="password" id="whoPassword" placeholder="Enter your password" onkeydown="if(event.key==='Enter')submitLogin()">
+        </div>
+        <div id="whoLoginErr" style="display:none;color:var(--red);font-size:12px;font-family:var(--mono);margin-bottom:10px">❌ Incorrect password</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <button class="btn bgh" onclick="whoBack()">← Back</button>
+          <button class="btn ba" onclick="submitLogin()">Log In</button>
+        </div>
+        <div style="margin-top:12px;text-align:center">
+          <button class="btn bgh bsm" onclick="whoForgot()" style="font-size:11px">Forgot password?</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="m-addTech" class="mover" style="display:none" onclick="mOut(event,'addTech')">
+  <div class="modal">
+    <div class="mh"><span class="mt">Add Technician</span><button class="xb" onclick="closeM('addTech')">✕</button></div>
+    <div class="mb">
+      <div class="fgrid">
+        <div class="fg"><label>Full Name *</label><input id="tn" placeholder="Jane Smith"></div>
+        <div class="fg"><label>Role / Title</label><input id="tr" placeholder="Head Technician"></div>
+        <div class="fg"><label>Department</label>
+        <select id="tdept" style="width:100%;background:#fff;border:1px solid var(--border2);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:12px;padding:9px 12px;">
+          <option value="">— No department —</option>
+          <option value="Lighting">💡 Lighting</option>
+          <option value="Audio">🎚️ Audio</option>
+          <option value="Cameras">📷 Cameras</option>
+          <option value="IT">💻 IT</option>
+        </select>
+        </div>
+        <div class="fg"><label>Permission Level</label>
+          <select id="tuserrole">
+            <option value="user">👤 Regular User — report outages, replacements, receive bulbs</option>
+            <option value="admin">🔑 User Admin — manage crew, fixtures, inventory, schedule</option>
+          </select>
+        </div>
+        <div class="fg"><label>Avatar Emoji</label><input id="ta" placeholder="👷" maxlength="2" style="font-size:20px;text-align:center"></div>
+        <div class="fg" style="grid-column:1/-1"><label>Email (for alerts)</label><input id="tem" type="email" placeholder="jane@example.com"></div>
+        <div class="fg"><label>Phone Number</label><input id="tphone" type="tel" placeholder="e.g. 403-555-0123"></div>
+        <div class="fg"><label>Emergency Contact</label><input id="temergency" placeholder="e.g. John Smith · 403-555-9876"></div>
+        <div class="fg"><label>Password *</label><input id="tpw" type="password" placeholder="Set a password"></div>
+        <div class="fg"><label>Confirm Password *</label><input id="tpw2" type="password" placeholder="Confirm password"></div>
+        <div class="fg" style="grid-column:1/-1"><label>Training / Skills</label>
+          <div id="ttrainingGrid" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;padding:10px;background:var(--s2);border:1px solid var(--border2);border-radius:6px;min-height:44px"></div>
+        </div>
+        <div class="fg" style="grid-column:1/-1"><label>Additional Notes</label><textarea id="tnotes" placeholder="Any other notes..." style="min-height:50px"></textarea></div>
+        <div class="fg" style="grid-column:1/-1"><div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--s2);border:1px solid var(--border);border-radius:6px"><input type="checkbox" id="tcanschedule" style="width:16px;height:16px;accent-color:var(--amber)"><div><div style="font-size:13px;font-weight:700;color:var(--amber)">Can edit schedule</div><div class="dim">Allow this technician to create and edit Sunday schedules</div></div></div></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="closeM('addTech')">Cancel</button>
+      <button class="btn ba" onclick="addTech()">Add to Crew</button>
+    </div>
+  </div>
+</div>
+
+<div id="m-editTech" class="mover" style="display:none" onclick="mOut(event,'editTech')">
+  <div class="modal">
+    <div class="mh"><span class="mt">Edit Technician</span><button class="xb" onclick="closeM('editTech')">✕</button></div>
+    <div class="mb">
+      <input type="hidden" id="etech-id">
+      <div class="fgrid">
+        <div class="fg"><label>Full Name *</label><input id="etn" placeholder="Jane Smith"></div>
+        <div class="fg"><label>Role / Title</label><input id="etr" placeholder="Head Technician"></div>
+        <div class="fg"><label>Department</label>
+        <select id="etdept" style="width:100%;background:#fff;border:1px solid var(--border2);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:12px;padding:9px 12px;">
+          <option value="">— No department —</option>
+          <option value="Lighting">💡 Lighting</option>
+          <option value="Audio">🎚️ Audio</option>
+          <option value="Cameras">📷 Cameras</option>
+          <option value="IT">💻 IT</option>
+        </select>
+        </div>
+        <div class="fg"><label>Permission Level</label>
+          <select id="etuserrole">
+            <option value="user">👤 Regular User — report outages, replacements, receive bulbs</option>
+            <option value="admin">🔑 User Admin — manage crew, fixtures, inventory, schedule</option>
+          </select>
+        </div>
+        <div class="fg"><label>Avatar Emoji</label><input id="eta" placeholder="👷" maxlength="2" style="font-size:20px;text-align:center"></div>
+        <div class="fg" style="grid-column:1/-1"><label>Email (for alerts)</label><input id="etem" type="email" placeholder="jane@example.com"></div>
+        <div class="fg"><label>Phone Number</label><input id="etphone" type="tel" placeholder="e.g. 403-555-0123"></div>
+        <div class="fg"><label>Emergency Contact</label><input id="etemergency" placeholder="e.g. John Smith · 403-555-9876"></div>
+        <div class="fg" style="grid-column:1/-1"><label>Training / Skills</label>
+          <div id="ettrainingGrid" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;padding:10px;background:var(--s2);border:1px solid var(--border2);border-radius:6px;min-height:44px"></div>
+        </div>
+        <div class="fg" style="grid-column:1/-1"><label>Additional Notes</label><textarea id="etnotes" placeholder="Any other notes..." style="min-height:50px"></textarea></div>
+        <div class="fg" style="grid-column:1/-1"><div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--s2);border:1px solid var(--border);border-radius:6px;margin-bottom:10px"><input type="checkbox" id="etcanschedule" style="width:16px;height:16px;accent-color:var(--amber)"><div><div style="font-size:13px;font-weight:700;color:var(--amber)">Can edit schedule</div><div class="dim">Allow this technician to create and edit Sunday schedules</div></div></div></div>
+        <div class="fg" style="grid-column:1/-1"><div style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:12px;margin-top:4px"><div style="font-size:12px;font-weight:700;color:var(--amber);margin-bottom:10px">🔑 Change Password</div><div class="fgrid"><div class="fg"><label>New Password (leave blank to keep current)</label><input id="etpw" type="password" placeholder="New password"></div><div class="fg"><label>Confirm New Password</label><input id="etpw2" type="password" placeholder="Confirm new password"></div></div></div></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="closeM('editTech')">Cancel</button>
+      <button class="btn ba" onclick="saveTechEdit()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<div id="m-changeMyPw" class="mover" style="display:none" onclick="mOut(event,'changeMyPw')">
+  <div class="modal">
+    <div class="mh"><span class="mt">🔑 Change My Password</span><button class="xb" onclick="closeM('changeMyPw')">✕</button></div>
+    <div class="mb">
+      <div class="fg mb12"><label>Current Password</label><input type="password" id="cmpCur" placeholder="Your current password"></div>
+      <div class="fg mb12"><label>New Password</label><input type="password" id="cmpNew" placeholder="New password"></div>
+      <div class="fg"><label>Confirm New Password</label><input type="password" id="cmpNew2" placeholder="Confirm new password"></div>
+      <div id="cmpErr" style="display:none;color:var(--red);font-size:12px;font-family:var(--mono);margin-top:10px"></div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="closeM('changeMyPw')">Cancel</button>
+      <button class="btn ba" onclick="changeMyPassword()">Update Password</button>
+    </div>
+  </div>
+</div>
+
+<div id="m-addFixture" class="mover" style="display:none" onclick="mOut(event,'addFixture')">
+  <div class="modal">
+    <div class="mh"><span class="mt">Add Fixture</span><button class="xb" onclick="closeM('addFixture')">✕</button></div>
+    <div class="mb">
+      <div class="fgrid">
+        <div class="fg"><label>Fixture ID *</label><input id="fid" placeholder="FX-005" oninput="this.value=this.value.toUpperCase()"></div>
+        <div class="fg"><label>Name / Description</label><input id="fna" placeholder="Front Wash Left"></div>
+        <div class="fg"><label>Location / Position</label><input id="flo" placeholder="Stage Left, Truss A"></div>
+        <div class="fg"><label>Bulb Type *</label><input id="fbu" placeholder="PAR64 1000W"></div>
+        <div class="fg"><label>Category</label>
+          <select id="fcat">
+            <option value="wash">Wash</option><option value="spot">Spot</option><option value="par">PAR</option>
+            <option value="fresnel">Fresnel</option><option value="led">LED</option><option value="follow">Follow Spot</option><option value="other">Other</option>
+          </select>
+        </div>
+        <div class="fg"><label>Maintenance interval (days)</label><input id="fmaint" type="number" placeholder="90" min="1"></div>
+        <div class="fg"><label>Vendor / Supplier</label><select id="fvendor"><option value="">— None —</option></select></div>
+        <div class="fg" style="grid-column:1/-1"><label>Notes</label><textarea id="fnotes" placeholder="Any notes about this fixture…"></textarea></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="closeM('addFixture')">Cancel</button>
+      <button class="btn ba" onclick="addFixture()">Add Fixture</button>
+    </div>
+  </div>
+</div>
+
+<div id="m-editFixture" class="mover" style="display:none" onclick="mOut(event,'editFixture')">
+  <div class="modal">
+    <div class="mh"><span class="mt">✏️ Edit Fixture</span><button class="xb" onclick="closeM('editFixture')">✕</button></div>
+    <div class="mb">
+      <input type="hidden" id="efix-id">
+      <div class="fgrid">
+        <div class="fg"><label>Fixture ID</label><input id="efid" disabled style="opacity:.5"></div>
+        <div class="fg"><label>Name / Description</label><input id="efna" placeholder="Front Wash Left"></div>
+        <div class="fg"><label>Location / Position</label><input id="eflo" placeholder="Stage Left, Truss A"></div>
+        <div class="fg"><label>Bulb Type</label><input id="efbu" placeholder="PAR64 1000W"></div>
+        <div class="fg"><label>Category</label>
+          <select id="efcat">
+            <option value="wash">Wash</option><option value="spot">Spot</option><option value="par">PAR</option>
+            <option value="fresnel">Fresnel</option><option value="led">LED</option><option value="follow">Follow Spot</option><option value="other">Other</option>
+          </select>
+        </div>
+        <div class="fg"><label>Maintenance interval (days)</label><input id="efmaint" type="number" placeholder="90" min="1"></div>
+        <div class="fg"><label>Vendor / Supplier</label><select id="efvendor"><option value="">— None —</option></select></div>
+        <div class="fg" style="grid-column:1/-1"><label>Notes</label><textarea id="efnotes" placeholder="Any notes about this fixture…"></textarea></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="closeM('editFixture')">Cancel</button>
+      <button class="btn ba" onclick="saveFixtureEdit()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Vendor / Parts Supplier Modal (add + edit) ══ -->
+<div id="m-vendorForm" class="mover" style="display:none" onclick="if(event.target===this)closeM('vendorForm')">
+  <div class="modal">
+    <div class="mh"><span class="mt" id="vf-modal-title">🚚 Add Vendor</span><button class="xb" onclick="closeM('vendorForm')">✕</button></div>
+    <div class="mb">
+      <input type="hidden" id="vf-id">
+      <div class="fgrid">
+        <div class="fg" style="grid-column:1/-1"><label>Vendor / Company name *</label><input id="vf-name" placeholder="e.g. Stage Lighting Supply Co."></div>
+        <div class="fg"><label>Contact person</label><input id="vf-contact" placeholder="e.g. John Smith"></div>
+        <div class="fg"><label>Phone</label><input id="vf-phone" placeholder="(555) 123-4567"></div>
+        <div class="fg" style="grid-column:1/-1"><label>Email</label><input id="vf-email" type="email" placeholder="orders@vendor.com"></div>
+        <div class="fg" style="grid-column:1/-1"><label>Parts / equipment supplied</label><input id="vf-parts" placeholder="e.g. Bulbs, cables, LED fixtures"></div>
+        <div class="fg"><label>Last order date</label><input id="vf-lastorder" type="date"></div>
+        <div class="fg" style="grid-column:1/-1"><label>Notes</label><textarea id="vf-notes" placeholder="Account #, ordering process, pricing notes…" style="min-height:60px"></textarea></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn br bsm" id="vf-delete-btn" style="display:none" onclick="deleteVendor()">Delete</button>
+      <button class="btn bgh" onclick="closeM('vendorForm')">Cancel</button>
+      <button class="btn ba" onclick="saveVendor()">Save Vendor</button>
+    </div>
+  </div>
+</div>
+
+<div id="m-viewFixture" class="mover" style="display:none" onclick="mOut(event,'viewFixture')">
+  <div class="modal wide">
+    <div class="mh"><span class="mt" id="vfTitle">Fixture Detail</span><button class="xb" onclick="closeM('viewFixture')">✕</button></div>
+    <div class="mb" id="vfBody"></div>
+  </div>
+</div>
+
+<div id="m-reportOutage" class="mover" style="display:none" onclick="mOut(event,'reportOutage')">
+  <div class="modal">
+    <div class="mh"><span class="mt" id="outTitle">🔴 Report Outage</span><button class="xb" onclick="closeM('reportOutage')">✕</button></div>
+    <div class="mb">
+      <div id="outInfo" style="background:var(--rglow);border:1px solid rgba(224,60,60,.3);border-radius:6px;padding:12px;margin-bottom:14px"></div>
+      <div class="fg mb12"><label>Reporting Technician *</label><div class="tpg" id="outTechG"></div></div>
+      <div class="fg mb12"><label>Notes</label><input id="onotes" placeholder="Optional notes"></div>
+      <div class="fg mb12">
+        <label>Photo (optional)</label>
+        <input id="outPhotoInput" type="file" accept="image/*" capture="environment" onchange="_photoPreview('outPhotoInput','outPhotoPreview')">
+        <div id="outPhotoPreview" style="margin-top:8px"></div>
+      </div>
+      <div class="fg">
+        <label>What happened to the bulb?</label>
+        <select id="oBulbStatus">
+          <option value="unknown">❓ Unknown — will check later</option>
+          <option value="still_in">💡 Still in fixture — not pulled yet</option>
+          <option value="pulled_good">♻️ Pulled out — condition looks good</option>
+          <option value="blown">💀 Confirmed blown</option>
+        </select>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="closeM('reportOutage')">Cancel</button>
+      <button class="btn br" onclick="submitOutage()">Report Outage</button>
+    </div>
+  </div>
+</div>
+
+<div id="m-markReplaced" class="mover" style="display:none" onclick="mOut(event,'markReplaced')">
+  <div class="modal">
+    <div class="mh"><span class="mt">✅ Mark Replaced</span><button class="xb" onclick="closeM('markReplaced')">✕</button></div>
+    <div class="mb">
+
+      <!-- Fixture info -->
+      <div id="repInfo" style="background:var(--gglow);border:1px solid rgba(40,201,122,.3);border-radius:6px;padding:12px;margin-bottom:14px"></div>
+
+      <!-- Technician -->
+      <div class="fg mb14"><label>Replacing Technician *</label><div class="tpg" id="repTechG"></div></div>
+
+      <!-- SCAN BULB PACKAGE -->
+      <div style="background:var(--s2);border:1px solid var(--border2);border-radius:8px;padding:14px;margin-bottom:14px">
+        <div style="font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;color:var(--amber)">📦 Scan Bulb Package</div>
+        <p class="dim mb10">Scan the label on the bulb package you are installing. The app will verify it matches this fixture and deduct it from stock.</p>
+
+        <!-- Scanner area -->
+        <div id="repScannerWrap" style="display:none;margin-bottom:10px;border-radius:6px;overflow:hidden">
+          <div id="rep-qr-reader"></div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:flex-end;margin-bottom:10px">
+          <div class="fg">
+            <label>Bulb Label / ID</label>
+            <input id="rbulbid" placeholder="Scan or type e.g. BLB-A-003" oninput="onBulbIdInput(this.value)">
+          </div>
+          <button class="btn bb" id="repCamBtn" onclick="toggleRepCamera()" style="white-space:nowrap;min-height:44px">📷 Scan</button>
+        </div>
+
+        <!-- Match result banner -->
+        <div id="repMatchBanner" style="display:none;border-radius:6px;padding:10px 12px;font-size:13px;font-weight:600;margin-bottom:10px"></div>
+
+        <!-- Bulb condition (auto-set after scan, can be overridden) -->
+        <div class="fg">
+          <label>Bulb Condition</label>
+          <select id="rbulbcond" onchange="onConditionChange(this.value)">
+            <option value="new">✅ New</option>
+            <option value="blown">💀 Blown</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Notes -->
+      <div class="fg mb12"><label>Notes</label><input id="rnotes" placeholder="Optional notes"></div>
+
+      <!-- Deduct checkbox -->
+      <div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--aglow);border:1px solid rgba(240,165,0,.3);border-radius:6px">
+        <input type="checkbox" id="rdeduct" checked style="width:18px;height:18px;cursor:pointer;accent-color:var(--amber)">
+        <div>
+          <div style="font-size:13px;font-weight:700;color:var(--amber)">Deduct 1 bulb from inventory</div>
+          <div class="dim">Uncheck if no bulb was used (e.g. tripped breaker, false alarm)</div>
+        </div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="closeRepModal()">Cancel</button>
+      <button class="btn bg" onclick="submitReplaced()">✅ Confirm Replaced</button>
+    </div>
+  </div>
+</div>
+
+<div id="m-addUsedBulb" class="mover" style="display:none" onclick="mOut(event,'addUsedBulb')">
+  <div class="modal">
+    <div class="mh"><span class="mt">♻️ Add Used Bulb</span><button class="xb" onclick="closeM('addUsedBulb')">✕</button></div>
+    <div class="mb">
+      <p class="dim mb12">Manually log a bulb that has been pulled from a fixture and is now on the shelf.</p>
+      <div id="aub-scanner-wrap" style="display:none;margin-bottom:10px;border-radius:6px;overflow:hidden"><div id="aub-qr-reader"></div></div>
+      <div class="fgrid">
+        <div class="fg"><label>Bulb ID / Label <button class="btn bgh bsm" style="padding:2px 8px;font-size:10px;margin-left:4px" onclick="toggleAubCamera()">📷 Scan</button></label>
+          <input id="aub-id" placeholder="e.g. BLB-A-003" oninput="this.value=this.value.toUpperCase()"></div>
+        <div class="fg"><label>Bulb Type *</label>
+          <input id="aub-type" placeholder="e.g. PAR64 1000W" list="aub-type-list">
+          <datalist id="aub-type-list"></datalist>
+        </div>
+        <div class="fg"><label>Pulled From Fixture</label>
+          <input id="aub-fixture" placeholder="e.g. FX-001" oninput="this.value=this.value.toUpperCase()" list="aub-fix-list">
+          <datalist id="aub-fix-list"></datalist>
+        </div>
+        <div class="fg"><label>Condition</label>
+          <select id="aub-cond">
+            <option value="new">✅ New</option>
+            <option value="blown">💀 Blown</option>
+          </select>
+        </div>
+        <div class="fg" style="grid-column:1/-1"><label>Notes</label><input id="aub-notes" placeholder="Optional notes"></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="closeM('addUsedBulb')">Cancel</button>
+      <button class="btn ba" onclick="addUsedBulb()">Add to Used List</button>
+    </div>
+  </div>
+</div>
+
+<div id="m-editChecklist" class="mover" style="display:none" onclick="mOut(event,'editChecklist')">
+  <div class="modal wide">
+    <div class="mh"><span class="mt">⚙️ Customize Checklist</span><button class="xb" onclick="closeM('editChecklist')">✕</button></div>
+    <div class="mb">
+      <div class="fg mb14">
+        <label>Station</label>
+        <select id="clStationSel" onchange="renderChecklistEditor()">
+        </select>
+      </div>
+      <div class="fw7 mb8" style="font-size:12px;letter-spacing:1px;color:var(--dim2);text-transform:uppercase">Tasks for this station</div>
+      <div id="clTaskList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px"></div>
+      <div class="row gap8">
+        <input id="clNewTask" placeholder="New task e.g. Check cable connections" style="flex:1" onkeydown="if(event.key==='Enter')addChecklistTask()">
+        <button class="btn ba bsm" onclick="addChecklistTask()">+ Add Task</button>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="closeM('editChecklist')">Done</button>
+    </div>
+  </div>
+</div>
+
+<div id="m-editInv" class="mover" style="display:none" onclick="mOut(event,'editInv')">
+  <div class="modal">
+    <div class="mh"><span class="mt">✏️ Edit Bulb Stock</span><button class="xb" onclick="closeM('editInv')">✕</button></div>
+    <div class="mb">
+      <div class="fg mb12">
+        <label>Bulb Type</label>
+        <input id="ei-type" disabled style="opacity:.6">
+      </div>
+      <div class="grid2">
+        <div class="fg">
+          <label>Current Stock</label>
+          <input id="ei-stock" type="number" min="0" placeholder="0">
+        </div>
+        <div class="fg">
+          <label>Low Stock Threshold</label>
+          <input id="ei-threshold" type="number" min="0" placeholder="3">
+        </div>
+        <div class="fg">
+          <label>Total Received</label>
+          <input id="ei-received" type="number" min="0" placeholder="0">
+        </div>
+        <div class="fg">
+          <label>Total Used</label>
+          <input id="ei-used" type="number" min="0" placeholder="0">
+        </div>
+        <div class="fg">
+          <label>Expected Life (hours)</label>
+          <input id="ei-lifehours" type="number" min="0" placeholder="e.g. 2000 — 0 = not tracked">
+        </div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="closeM('editInv')">Cancel</button>
+      <button class="btn ba" onclick="saveInvEdit()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<div id="m-receiveBulbs" class="mover" style="display:none" onclick="mOut(event,'receiveBulbs')">
+  <div class="modal">
+    <div class="mh"><span class="mt">📦 Receive Bulb Batch</span><button class="xb" onclick="closeM('receiveBulbs')">✕</button></div>
+    <div class="mb">
+      <div class="fgrid mb12">
+        <div class="fg"><label>Bulb Type * <button class="btn bgh bsm" style="padding:2px 8px;font-size:10px;margin-left:6px" onclick="scanIntoField('btype')">📷 Scan</button></label><input id="btype" placeholder="PAR64 1000W or scan label"></div>
+        <div class="fg"><label>Quantity *</label><input id="bqty" type="number" placeholder="12" min="1"></div>
+        <div class="fg"><label>Supplier</label><input id="bsup" placeholder="Supplier name"></div>
+        <div class="fg"><label>Low Stock Threshold</label><input id="bthr" type="number" placeholder="3" min="1"></div>
+        <div class="fg" style="grid-column:1/-1"><label>Notes / Order #</label><input id="bnotes" placeholder="PO number, etc."></div>
+      </div>
+      <div class="fg"><label>Received By</label><div class="tpg" id="recvTechG"></div></div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="closeM('receiveBulbs')">Cancel</button>
+      <button class="btn ba" onclick="receiveBulbs()">Add to Inventory</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/00-offline-sync.js"></script>
+<script src="js/01-core.js"></script>
+<script src="js/02-login.js"></script>
+<script src="js/03-permissions.js"></script>
+<script src="js/04-dashboard.js"></script>
+<script src="js/05-fixtures.js"></script>
+<script src="js/06-inventory.js"></script>
+<script src="js/07-crew.js"></script>
+<script src="js/08-settings.js"></script>
+<script src="js/09-shared-ui.js"></script>
+<script src="js/10-scan-import.js"></script>
+<script src="js/11-schedule.js"></script>
+<script src="js/12-admin-ops.js"></script>
+<script src="js/13-changelog.js"></script>
+<script src="js/14-checklist-nfc.js"></script>
+<script src="js/15-availability-email.js"></script>
+<script src="js/16-fixture-map.js"></script>
+<!-- PWA Service Worker Registration -->
+<script src="js/19-pwa.js"></script>
+<script src="js/20-icons.js"></script>
+<script src="js/21-vmix.js"></script>
+<script src="js/23-propresenter.js"></script>
+<script src="js/24-settings-nav.js"></script>
+<script src="js/25-golive.js"></script>
+<script src="js/26-connections.js"></script>
+<script src="js/27-qr-gear.js"></script>
+<script src="js/28-bridge.js"></script>
+<script src="js/29-summary.js"></script>
+<script src="js/30-training-plus.js"></script>
+<script src="js/31-starter-training.js"></script>
+<script src="js/32-training-record.js"></script>
+<script src="js/33-station-manuals.js"></script>
+<script src="js/34-restricted-stations.js"></script>
+<script src="js/35-practical-sheet.js"></script>
+<script src="js/22-server.js"></script>
+<script src="js/17-gear-training.js"></script>
+
+<script src="js/18-sidebar.js"></script>
+
+
+<!-- Add Gear Item modal -->
+<div id="m-addGearItem" class="mover" style="display:none" onclick="mOut(event,'addGearItem')">
+  <div class="modal">
+    <div class="mh"><span class="mt">Add Gear Item</span><button class="xb" onclick="closeM('addGearItem')">✕</button></div>
+    <div class="mb">
+      <div class="fgrid">
+        <div class="fg"><label>Item Name *</label><input id="gi-name" placeholder="e.g. Canon XA55 Camera"></div>
+        <div class="fg"><label>Asset ID / Tag</label><input id="gi-id" placeholder="e.g. CAM-001"></div>
+        <div class="fg"><label>Department</label>
+          <select id="gi-dept">
+            <option value="">— Any dept —</option>
+            <option value="Lighting">💡 Lighting</option>
+            <option value="Audio">🎚️ Audio</option>
+            <option value="Cameras">📷 Cameras</option>
+            <option value="IT">💻 IT</option>
+          </select>
+        </div>
+        <div class="fg"><label>Category</label>
+          <select id="gi-cat">
+            <option value="Camera">📷 Camera</option>
+            <option value="Lens">🔭 Lens</option>
+            <option value="Audio">🎚️ Audio Equipment</option>
+            <option value="Lighting">💡 Lighting</option>
+            <option value="Cable">🔌 Cable / Adapter</option>
+            <option value="Accessory">🎛️ Accessory</option>
+            <option value="Computer">💻 Computer / Tablet</option>
+            <option value="Power">🔋 Power / Battery</option>
+            <option value="Other">📦 Other</option>
+          </select>
+        </div>
+        <div class="fg" style="grid-column:1/-1"><label>Notes</label><textarea id="gi-notes" placeholder="Serial number, purchase date, condition..." style="min-height:50px"></textarea></div>
+        <div class="fg"><label>Quantity in stock</label><input id="gi-qty" type="number" min="1" value="1" placeholder="1"></div>
+        <div class="fg"><label>Low stock alert at</label><input id="gi-lowstock" type="number" min="0" value="0" placeholder="0 = off"></div>
+        <div class="fg"><label>Expected lifespan (hours)</label><input id="gi-lifehours" type="number" min="0" value="0" placeholder="0 = not tracked"></div>
+        <div class="fg"><label>Hours used so far</label><input id="gi-hoursused" type="number" min="0" step="0.5" value="0" placeholder="0"></div>
+        <div class="fg"><label>Service interval (days)</label><input id="gi-interval" type="number" placeholder="90" value="90" min="1"></div>
+        <div class="fg"><label>Last serviced</label><input id="gi-lastservice" type="date"></div>
+        <div class="fg"><label>Vendor / Supplier</label><select id="gi-vendor"><option value="">— None —</option></select></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="closeM('addGearItem')">Cancel</button>
+      <button class="btn ba" onclick="saveGearItem()">Add Item</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Gear Item modal -->
+<div id="m-editGearItem" class="mover" style="display:none" onclick="mOut(event,'editGearItem')">
+  <div class="modal">
+    <div class="mh"><span class="mt">Edit Gear Item</span><button class="xb" onclick="closeM('editGearItem')">✕</button></div>
+    <div class="mb">
+      <input type="hidden" id="egi-id">
+      <div class="fgrid">
+        <div class="fg"><label>Item Name *</label><input id="egi-name" placeholder="e.g. Canon XA55 Camera"></div>
+        <div class="fg"><label>Asset ID / Tag</label><input id="egi-assetid" placeholder="e.g. CAM-001"></div>
+        <div class="fg"><label>Department</label>
+          <select id="egi-dept">
+            <option value="">— Any dept —</option>
+            <option value="Lighting">💡 Lighting</option>
+            <option value="Audio">🎚️ Audio</option>
+            <option value="Cameras">📷 Cameras</option>
+            <option value="IT">💻 IT</option>
+          </select>
+        </div>
+        <div class="fg"><label>Category</label>
+          <select id="egi-cat">
+            <option value="Camera">📷 Camera</option>
+            <option value="Lens">🔭 Lens</option>
+            <option value="Audio">🎚️ Audio Equipment</option>
+            <option value="Lighting">💡 Lighting</option>
+            <option value="Cable">🔌 Cable / Adapter</option>
+            <option value="Accessory">🎛️ Accessory</option>
+            <option value="Computer">💻 Computer / Tablet</option>
+            <option value="Power">🔋 Power / Battery</option>
+            <option value="Other">📦 Other</option>
+          </select>
+        </div>
+        <div class="fg" style="grid-column:1/-1"><label>Notes</label><textarea id="egi-notes" style="min-height:50px"></textarea></div>
+        <div class="fg"><label>Quantity in stock</label><input id="egi-qty" type="number" min="1" value="1"></div>
+        <div class="fg"><label>Low stock alert at</label><input id="egi-lowstock" type="number" min="0" value="0"></div>
+        <div class="fg"><label>Expected lifespan (hours)</label><input id="egi-lifehours" type="number" min="0" value="0"></div>
+        <div class="fg"><label>Hours used so far</label><input id="egi-hoursused" type="number" min="0" step="0.5" value="0"></div>
+        <div class="fg"><label>Service interval (days)</label><input id="egi-interval" type="number" min="1"></div>
+        <div class="fg"><label>Last serviced</label><input id="egi-lastservice" type="date"></div>
+        <div class="fg"><label>Vendor / Supplier</label><select id="egi-vendor"><option value="">— None —</option></select></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn br bsm" data-perm="admin" onclick="deleteGearItem(document.getElementById('egi-id').value)">Delete</button>
+      <button class="btn bgh" onclick="closeM('editGearItem')">Cancel</button>
+      <button class="btn ba" onclick="saveGearItemEdit()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Checkout Gear modal -->
+<div id="m-checkoutGear" class="mover" style="display:none" onclick="mOut(event,'checkoutGear')">
+  <div class="modal">
+    <div class="mh"><span class="mt">📤 Check Out Gear</span><button class="xb" onclick="closeM('checkoutGear')">✕</button></div>
+    <div class="mb">
+      <div class="fgrid">
+        <div class="fg" style="grid-column:1/-1"><label>Gear Item *</label>
+          <select id="co-item">
+            <option value="">— Select item —</option>
+          </select>
+        </div>
+        <div class="fg" style="grid-column:1/-1"><label>Checked out by *</label>
+          <select id="co-person">
+            <option value="">— Select crew member —</option>
+          </select>
+        </div>
+        <div class="fg"><label>Due back</label><input id="co-due" type="date"></div>
+        <div class="fg"><label>Purpose / Event</label><input id="co-purpose" placeholder="e.g. Sunday service, recording session"></div>
+        <div class="fg" style="grid-column:1/-1"><label>Notes</label><textarea id="co-notes" placeholder="Condition on checkout, accessories included..." style="min-height:50px"></textarea></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="closeM('checkoutGear')">Cancel</button>
+      <button class="btn ba" onclick="doCheckout()">Check Out</button>
+    </div>
+  </div>
+</div>
+
+<!-- Return Gear modal -->
+<div id="m-gearDetail" class="mover" style="display:none" onclick="mOut(event,'gearDetail')">
+  <div class="modal">
+    <div class="mh"><span class="mt" id="gd-title"></span><button class="xb" onclick="closeM('gearDetail')">✕</button></div>
+    <div class="mb" id="gd-body"></div>
+  </div>
+</div>
+
+<div id="m-returnGear" class="mover" style="display:none" onclick="mOut(event,'returnGear')">
+  <div class="modal">
+    <div class="mh"><span class="mt">📥 Return Gear</span><button class="xb" onclick="closeM('returnGear')">✕</button></div>
+    <div class="mb">
+      <div id="rg-summary" style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px;font-size:13px"></div>
+      <input type="hidden" id="rg-coId">
+      <div class="fg mb12"><label>Condition on return</label>
+        <select id="rg-condition">
+          <option value="Good">Good — no issues</option>
+          <option value="Minor wear">Minor wear</option>
+          <option value="Needs service">Needs service</option>
+          <option value="Damaged">Damaged</option>
+        </select>
+      </div>
+      <div class="fg"><label>Return notes</label><textarea id="rg-notes" placeholder="Any issues, missing accessories..." style="min-height:50px"></textarea></div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="closeM('returnGear')">Cancel</button>
+      <button class="btn ba" onclick="doReturn()">Mark Returned</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Maintenance Entry modal -->
+<div id="m-addMaintEntry" class="mover" style="display:none" onclick="mOut(event,'addMaintEntry')">
+  <div class="modal">
+    <div class="mh"><span class="mt">+ Log Service</span><button class="xb" onclick="closeM('addMaintEntry')">✕</button></div>
+    <div class="mb">
+      <div class="fgrid">
+        <div class="fg" style="grid-column:1/-1"><label>Gear Item *</label>
+          <select id="me-item">
+            <option value="">— Select item —</option>
+          </select>
+        </div>
+        <div class="fg"><label>Service date *</label><input id="me-date" type="date"></div>
+        <div class="fg"><label>Serviced by</label><input id="me-by" placeholder="Name or company"></div>
+        <div class="fg"><label>Service type</label>
+          <select id="me-type">
+            <option value="Routine check">Routine check</option>
+            <option value="Cleaning">Cleaning</option>
+            <option value="Repair">Repair</option>
+            <option value="Firmware update">Firmware update</option>
+            <option value="Calibration">Calibration</option>
+            <option value="Part replacement">Part replacement</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div class="fg" style="grid-column:1/-1"><label>Notes</label><textarea id="me-notes" placeholder="What was done, parts replaced, issues found..." style="min-height:60px"></textarea></div>
+        <div class="fg"><label>Cost (optional)</label><input id="me-cost" type="number" placeholder="0.00" min="0" step="0.01"></div>
+        <div class="fg"><label>Next service due</label><input id="me-nextdue" type="date"></div>
+        <div class="fg" style="grid-column:1/-1">
+          <label>Photo (optional)</label>
+          <input id="mePhotoInput" type="file" accept="image/*" capture="environment" onchange="_photoPreview('mePhotoInput','mePhotoPreview')">
+          <div id="mePhotoPreview" style="margin-top:8px"></div>
+        </div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="closeM('addMaintEntry')">Cancel</button>
+      <button class="btn ba" onclick="saveMaintEntry()">Log Service</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- Add Tech Request modal -->
+<div id="m-addRequest" class="mover" style="display:none" onclick="mOut(event,'addRequest')">
+  <div class="modal">
+    <div class="mh"><span class="mt">New Tech Request</span><button class="xb" onclick="closeM('addRequest')">✕</button></div>
+    <div class="mb">
+      <div class="fgrid">
+        <div class="fg" style="grid-column:1/-1"><label>Request title *</label><input id="rq-title" placeholder="e.g. Need a DI box for acoustic guitar Sunday"></div>
+        <div class="fg"><label>Category</label>
+          <select id="rq-cat">
+            <option value="AV">AV Equipment</option>
+            <option value="Lighting">Lighting</option>
+            <option value="Camera">Camera / Video</option>
+            <option value="IT">IT / Network</option>
+            <option value="Repair">Repair / Service</option>
+            <option value="Supply">Supply / Purchase</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div class="fg"><label>Priority</label>
+          <select id="rq-priority">
+            <option value="normal">Normal</option>
+            <option value="urgent">🔴 Urgent</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
+        <div class="fg"><label>Needed by</label><input id="rq-needed" type="date"></div>
+        <div class="fg"><label>Requested by</label>
+          <select id="rq-by">
+            <option value="">— Select —</option>
+          </select>
+        </div>
+        <div class="fg" style="grid-column:1/-1"><label>Details</label><textarea id="rq-details" placeholder="Describe what you need and why..." style="min-height:70px"></textarea></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="closeM('addRequest')">Cancel</button>
+      <button class="btn ba" onclick="saveRequest()">Submit Request</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit / Manage Request modal -->
+<div id="m-editRequest" class="mover" style="display:none" onclick="mOut(event,'editRequest')">
+  <div class="modal">
+    <div class="mh"><span class="mt">Manage Request</span><button class="xb" onclick="closeM('editRequest')">✕</button></div>
+    <div class="mb">
+      <input type="hidden" id="er-id">
+      <div id="er-summary" style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px;font-size:13px"></div>
+      <div class="fgrid">
+        <div class="fg"><label>Status</label>
+          <select id="er-status">
+            <option value="open">Open</option>
+            <option value="progress">In Progress</option>
+            <option value="done">Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="fg"><label>Assigned to</label>
+          <select id="er-assigned">
+            <option value="">— Unassigned —</option>
+          </select>
+        </div>
+        <div class="fg" style="grid-column:1/-1"><label>Admin notes</label><textarea id="er-notes" placeholder="Notes on progress, resolution..." style="min-height:50px"></textarea></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn br bsm" onclick="deleteRequest(document.getElementById('er-id').value)">Delete</button>
+      <button class="btn bgh" onclick="closeM('editRequest')">Cancel</button>
+      <button class="btn ba" onclick="saveRequestEdit()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Announcement modal -->
+<div id="m-addAnnouncement" class="mover" style="display:none" onclick="mOut(event,'addAnnouncement')">
+  <div class="modal">
+    <div class="mh"><span class="mt">Post Announcement</span><button class="xb" onclick="closeM('addAnnouncement')">✕</button></div>
+    <div class="mb">
+      <div class="fgrid">
+        <div class="fg" style="grid-column:1/-1"><label>Title *</label><input id="an-title" placeholder="e.g. New mic stand policy"></div>
+        <div class="fg" style="grid-column:1/-1"><label>Message *</label><textarea id="an-body" placeholder="Write your announcement..." style="min-height:80px"></textarea></div>
+        <div class="fg"><label>Target dept</label>
+          <select id="an-dept">
+            <option value="">All departments</option>
+            <option value="Lighting">💡 Lighting</option>
+            <option value="Audio">🎚️ Audio</option>
+            <option value="Cameras">📷 Cameras</option>
+            <option value="IT">💻 IT</option>
+          </select>
+        </div>
+        <div class="fg"><label>Pin to top</label>
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--s2);border:1px solid var(--border);border-radius:6px;margin-top:2px">
+            <input type="checkbox" id="an-pin" style="width:16px;height:16px;accent-color:var(--amber)">
+            <span style="font-size:13px">Pin this announcement</span>
+          </div>
+        </div>
+        <div class="fg" style="grid-column:1/-1"><label>Email Notification</label>
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#E1F5EE;border:1px solid #9FE1CB;border-radius:6px;margin-top:2px">
+            <input type="checkbox" id="an-email" style="width:16px;height:16px;accent-color:#0F6E56">
+            <div><div style="font-size:13px;font-weight:700;color:#085041">📧 Send email to crew</div><div style="font-size:11px;color:#085041;font-family:var(--mono)">Emails all crew members with an email address on file</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="closeM('addAnnouncement')">Cancel</button>
+      <button class="btn ba" onclick="saveAnnouncement()">Post</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- Add Training Module modal -->
+<div id="m-addTrainingModule" class="mover" style="display:none" onclick="mOut(event,'addTrainingModule')">
+  <div class="modal">
+    <div class="mh"><span class="mt">Add Training Module</span><button class="xb" onclick="closeM('addTrainingModule')">✕</button></div>
+    <div class="mb">
+      <div class="fgrid">
+        <div class="fg"><label>Module title *</label><input id="tm-title" placeholder="e.g. Mixing Console Basics"></div>
+        <div class="fg"><label>Department</label>
+          <select id="tm-dept">
+            <option value="">All depts</option>
+            <option value="Lighting">💡 Lighting</option>
+            <option value="Audio">🎚️ Audio</option>
+            <option value="Cameras">📷 Cameras</option>
+            <option value="IT">💻 IT</option>
+          </select>
+        </div>
+        <div class="fg" style="grid-column:1/-1"><label>Description</label><textarea id="tm-desc" placeholder="What crew will learn..." style="min-height:50px"></textarea></div>
+        <div class="fg" style="grid-column:1/-1"><label>Resource link (YouTube, Google Doc, etc.)</label><input id="tm-url" type="url" placeholder="https://..."></div>
+        <div class="fg"><label>Difficulty</label>
+          <select id="tm-level">
+            <option value="Beginner">Beginner</option>
+            <option value="Intermediate">Intermediate</option>
+            <option value="Advanced">Advanced</option>
+          </select>
+        </div>
+        <div class="fg"><label>Est. duration</label><input id="tm-duration" placeholder="e.g. 20 min"></div>
+        <div class="fg" style="grid-column:1/-1">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--s2);border:1px solid var(--border);border-radius:6px">
+            <input type="checkbox" id="tm-required" style="width:16px;height:16px;accent-color:var(--amber)">
+            <span style="font-size:13px">Mark as required for new crew</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="closeM('addTrainingModule')">Cancel</button>
+      <button class="btn ba" onclick="saveTrainingModule()">Add Module</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Cert / Qualification modal -->
+<div id="m-addCert" class="mover" style="display:none" onclick="mOut(event,'addCert')">
+  <div class="modal">
+    <div class="mh"><span class="mt">Add Certification</span><button class="xb" onclick="closeM('addCert')">✕</button></div>
+    <div class="mb">
+      <input type="hidden" id="cert-techId">
+      <div class="fgrid">
+        <div class="fg" style="grid-column:1/-1"><label>Certification / Qualification *</label><input id="cert-name" placeholder="e.g. ProPresenter Certified, First Aid"></div>
+        <div class="fg"><label>Issued by</label><input id="cert-issuer" placeholder="e.g. Church, Manufacturer"></div>
+        <div class="fg"><label>Date earned</label><input id="cert-date" type="date"></div>
+        <div class="fg"><label>Expires</label><input id="cert-expiry" type="date"></div>
+        <div class="fg" style="grid-column:1/-1"><label>Notes</label><textarea id="cert-notes" style="min-height:40px" placeholder="Any extra details..."></textarea></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="closeM('addCert')">Cancel</button>
+      <button class="btn ba" onclick="saveCert()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Spreadsheet Import Modal ══ -->
+<div id="m-importSheet" class="mover" style="display:none" onclick="mOut(event,'importSheet')">
+  <div class="modal wide">
+    <div class="mh">
+      <span class="mt" id="importModalTitle">⬆️ Import Assets</span>
+      <button class="xb" onclick="closeM('importSheet')">✕</button>
+    </div>
+    <div class="mb">
+      <!-- Drop zone -->
+      <div id="importDropZone" style="border:2px dashed var(--border2);border-radius:10px;padding:32px;text-align:center;cursor:pointer;transition:all .2s;margin-bottom:16px;background:var(--s2)"
+           onclick="document.getElementById('importFileInput').click()"
+           ondragover="event.preventDefault();this.style.borderColor='#0F6E56';this.style.background='#E1F5EE'"
+           ondragleave="this.style.borderColor='var(--border2)';this.style.background='var(--s2)'"
+           ondrop="handleImportDrop(event)">
+        <div style="font-size:32px;margin-bottom:8px">📊</div>
+        <div style="font-family:var(--head);font-weight:700;font-size:13px;color:var(--text);margin-bottom:4px">Drop your spreadsheet here</div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--dim2)">Supports .csv and .xlsx — or click to browse</div>
+        <input type="file" id="importFileInput" accept=".csv,.xlsx" style="display:none" onchange="handleImportFile(this.files[0])">
+      </div>
+      <!-- Column hint -->
+      <div id="importColHint" style="font-family:var(--mono);font-size:10px;color:var(--dim2);background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:10px 14px;margin-bottom:14px;display:none"></div>
+      <!-- Preview table -->
+      <div id="importPreviewWrap" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="font-family:var(--head);font-weight:700;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--dim2)">Preview — <span id="importRowCount">0</span> rows</div>
+          <button class="btn bgh bsm" onclick="resetImportModal()">✕ Clear</button>
+        </div>
+        <div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px;max-height:280px;overflow-y:auto">
+          <table class="tbl" id="importPreviewTbl">
+            <thead id="importPreviewHead"></thead>
+            <tbody id="importPreviewBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <!-- Conflict resolution for current duplicate -->
+      <div id="importConflictBox" style="display:none;margin-top:16px;background:#FFF8E1;border:1px solid #F5C842;border-radius:10px;padding:16px">
+        <div style="font-family:var(--head);font-weight:700;font-size:13px;color:#7A5800;margin-bottom:6px">⚠️ Duplicate Found</div>
+        <div id="importConflictMsg" style="font-family:var(--mono);font-size:11px;color:#7A5800;margin-bottom:14px"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" style="background:#7A5800;color:#fff" onclick="resolveConflict('overwrite')">Overwrite existing</button>
+          <button class="btn bgh" onclick="resolveConflict('skip')">Skip this row</button>
+          <button class="btn bgh" onclick="resolveConflict('overwrite-all')" style="font-size:10px">Overwrite all remaining</button>
+          <button class="btn bgh" onclick="resolveConflict('skip-all')" style="font-size:10px">Skip all remaining</button>
+        </div>
+      </div>
+      <!-- Progress -->
+      <div id="importProgress" style="display:none;margin-top:14px">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--dim2);margin-bottom:6px">Importing… <span id="importProgressTxt">0 / 0</span></div>
+        <div style="height:6px;background:var(--s3);border-radius:3px;overflow:hidden">
+          <div id="importProgressBar" style="height:100%;background:#0F6E56;border-radius:3px;width:0%;transition:width .3s"></div>
+        </div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="closeM('importSheet')">Cancel</button>
+      <button class="btn ba" id="importStartBtn" onclick="startImport()" style="display:none">⬆️ Import Rows</button>
+    </div>
+  </div>
+</div>
+
+<!-- First-run Master Admin setup modal -->
+<div id="m-firstRun" class="mover" style="display:none;z-index:2000" onclick="mOut(event,'firstRun')">
+  <div class="modal">
+    <div class="mh"><span class="mt">👑 Create Master Admin</span><button class="xb" onclick="closeM('firstRun')">✕</button></div>
+    <div class="mb">
+      <div style="background:rgba(15,110,86,.1);border:0.5px solid rgba(15,110,86,.3);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--dim);font-family:var(--mono);line-height:1.6">
+        This is the first account — it will be set as Master Admin with full access to all settings and crew management.
+      </div>
+      <div class="fgrid">
+        <div class="fg"><label>Full name *</label><input id="fr-name" placeholder="Your full name"></div>
+        <div class="fg"><label>Avatar emoji</label><input id="fr-avatar" placeholder="👑" maxlength="2" value="👑"></div>
+        <div class="fg"><label>Email</label><input id="fr-email" type="email" placeholder="your@email.com"></div>
+        <div class="fg"><label>Role / Title</label><input id="fr-role" placeholder="Technical Director"></div>
+        <div class="fg"><label>Password *</label><input id="fr-pw" type="password" placeholder="Choose a strong password"></div>
+        <div class="fg"><label>Confirm password *</label><input id="fr-pw2" type="password" placeholder="Repeat password"></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="closeM('firstRun')">Cancel</button>
+      <button class="btn ba" onclick="saveFirstRun()">Create Account →</button>
+    </div>
+  </div>
+</div>
+<!-- ══ Incident / Damage Report Modal ══ -->
+<div id="m-incidentReport" class="mover" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal" style="max-width:460px">
+    <div class="mh"><span class="mt">⚠️ Damage / Incident Report</span><button class="xb" onclick="document.getElementById('m-incidentReport').style.display='none'">✕</button></div>
+    <div class="mb">
+      <input type="hidden" id="ir-gearId">
+      <div style="font-family:var(--head);font-weight:700;font-size:15px;margin-bottom:14px" id="ir-gearName"></div>
+      <div class="fgrid">
+        <div class="fg"><label>Severity</label>
+          <select id="ir-severity">
+            <option value="Minor">🟡 Minor — cosmetic / small issue</option>
+            <option value="Major">🟠 Major — affects functionality</option>
+            <option value="Critical">🔴 Critical — gear is unusable</option>
+          </select>
+        </div>
+        <div class="fg"><label>Date of incident</label><input id="ir-date" type="date"></div>
+        <div class="fg" style="grid-column:1/-1"><label>Description *</label><textarea id="ir-description" placeholder="What happened? What damage was found? Where, when, who was involved?" style="min-height:90px"></textarea></div>
+      </div>
+      <div style="padding:10px 12px;background:#fff3cd;border:1px solid #ffc107;border-radius:6px;font-size:12px;color:#854F0B">
+        📧 Admins with emails on file will be automatically notified.
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="document.getElementById('m-incidentReport').style.display='none'">Cancel</button>
+      <button class="btn br" onclick="saveIncidentReport()">Submit Report</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Map Zone Editor Modal ══ -->
+<div id="m-mapZones" class="mover" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal" style="max-width:480px">
+    <div class="mh"><span class="mt">🏗️ Venue Zones</span><button class="xb" onclick="document.getElementById('m-mapZones').style.display='none'">✕</button></div>
+    <div class="mb">
+      <p class="dim mb12">Define named zones (rooms/areas) that appear on the fixture map. Drag fixtures inside zones to organise your venue layout.</p>
+      <div id="zone-list" style="margin-bottom:14px"></div>
+      <div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:12px">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--dim2);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">Add Zone</div>
+        <div class="fgrid" style="grid-template-columns:1fr 1fr">
+          <div class="fg"><label>Zone Name *</label><input id="zone-name" placeholder="e.g. Stage, FOH, Balcony"></div>
+          <div class="fg"><label>Colour</label><input id="zone-color" type="color" value="#0F6E56" style="height:42px;padding:2px 4px"></div>
+          <div class="fg"><label>Width (px)</label><input id="zone-w" type="number" value="200" min="60"></div>
+          <div class="fg"><label>Height (px)</label><input id="zone-h" type="number" value="150" min="40"></div>
+        </div>
+        <button class="btn ba bsm" style="margin-top:10px" onclick="addMapZone()">+ Add Zone</button>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="document.getElementById('m-mapZones').style.display='none'">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Log Gear Hours Modal ══ -->
+<div id="m-logGearHours" class="mover" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal" style="max-width:380px">
+    <div class="mh"><span class="mt">⏱ Log Usage Hours</span><button class="xb" onclick="document.getElementById('m-logGearHours').style.display='none'">✕</button></div>
+    <div class="mb">
+      <input type="hidden" id="gh-gearId">
+      <div style="font-family:var(--head);font-weight:700;font-size:15px;margin-bottom:14px" id="gh-gearName"></div>
+      <div class="fg"><label>Hours used *</label><input id="gh-hours" type="number" min="0.5" step="0.5" placeholder="e.g. 3.5"></div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="document.getElementById('m-logGearHours').style.display='none'">Cancel</button>
+      <button class="btn ba" onclick="saveGearHours()">Log Hours</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Log Volunteer Hours Modal ══ -->
+<div id="m-logHours" class="mover" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal" style="max-width:420px">
+    <div class="mh"><span class="mt">⏱ Log Volunteer Hours</span><button class="xb" onclick="document.getElementById('m-logHours').style.display='none'">✕</button></div>
+    <div class="mb">
+      <input type="hidden" id="lh-techId">
+      <div style="font-family:var(--head);font-weight:700;font-size:15px;margin-bottom:14px" id="lh-techName"></div>
+      <div class="fgrid">
+        <div class="fg"><label>Hours *</label><input id="lh-hours" type="number" min="0.5" step="0.5" placeholder="e.g. 3.5"></div>
+        <div class="fg"><label>Date</label><input id="lh-date" type="date"></div>
+        <div class="fg" style="grid-column:1/-1"><label>Description (optional)</label><input id="lh-note" placeholder="e.g. Sunday service setup, rehearsal..."></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="document.getElementById('m-logHours').style.display='none'">Cancel</button>
+      <button class="btn ba" onclick="saveLogHours()">Save Hours</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Crew Feedback Modal ══ -->
+<div id="m-feedback" class="mover" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal" style="max-width:480px">
+    <div class="mh"><span class="mt">💬 Submit Feedback</span><button class="xb" onclick="document.getElementById('m-feedback').style.display='none'">✕</button></div>
+    <div class="mb">
+      <p class="dim" style="margin-bottom:14px">Share ideas, concerns, or suggestions with the team leads. Your feedback is anonymous unless you choose to include your name.</p>
+      <div class="fgrid">
+        <div class="fg"><label>Category</label>
+          <select id="fb-category">
+            <option value="General">💬 General</option>
+            <option value="Equipment">🔧 Equipment</option>
+            <option value="Scheduling">📅 Scheduling</option>
+            <option value="Training">📚 Training</option>
+            <option value="Communication">📢 Communication</option>
+            <option value="Other">✨ Other</option>
+          </select>
+        </div>
+        <div class="fg"><label>Anonymous?</label>
+          <select id="fb-anon">
+            <option value="yes">Yes — keep it anonymous</option>
+            <option value="no">No — include my name</option>
+          </select>
+        </div>
+        <div class="fg" style="grid-column:1/-1"><label>Your Feedback *</label><textarea id="fb-message" placeholder="Share your thoughts..." style="min-height:100px"></textarea></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="document.getElementById('m-feedback').style.display='none'">Cancel</button>
+      <button class="btn ba" onclick="submitFeedback()">Submit Feedback</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Performance Note Modal ══ -->
+<div id="m-perfNote" class="mover" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal" style="max-width:420px">
+    <div class="mh"><span class="mt">📝 Add Performance Note</span><button class="xb" onclick="document.getElementById('m-perfNote').style.display='none'">✕</button></div>
+    <div class="mb">
+      <input type="hidden" id="pn-techId">
+      <div style="font-family:var(--head);font-weight:700;font-size:15px;margin-bottom:14px" id="pn-techName"></div>
+      <div class="fgrid">
+        <div class="fg"><label>Note Type</label>
+          <select id="pn-type">
+            <option value="positive">✅ Positive — great job</option>
+            <option value="constructive">🟡 Constructive — needs improvement</option>
+            <option value="neutral">🔵 Neutral — general note</option>
+          </select>
+        </div>
+        <div class="fg" style="grid-column:1/-1"><label>Note *</label>
+          <textarea id="pn-text" placeholder="e.g. Showed great initiative setting up camera 2 before being asked. Very reliable." style="min-height:90px"></textarea>
+        </div>
+      </div>
+      <div style="padding:10px 12px;background:var(--s2);border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--dim2)">
+        🔒 Performance notes are admin-only and not visible to the crew member.
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="document.getElementById('m-perfNote').style.display='none'">Cancel</button>
+      <button class="btn ba" onclick="savePerfNote()">Save Note</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Add/Edit Special Event Modal ══ -->
+<div id="m-addSpecialEvent" class="mover" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal" style="max-width:560px">
+    <div class="mh"><span class="mt" id="se-modal-title">⭐ Add Special Event</span><button class="xb" onclick="document.getElementById('m-addSpecialEvent').style.display='none'">✕</button></div>
+    <div class="mb">
+      <input type="hidden" id="se-id">
+      <div class="fgrid">
+        <div class="fg" style="grid-column:1/-1"><label>Event Title *</label><input id="se-title" placeholder="e.g. Easter Service, Christmas Eve, Conference"></div>
+        <div class="fg"><label>Type</label>
+          <select id="se-type">
+            <option value="">— Select —</option>
+            <option>Holiday Service</option><option>Conference</option><option>Concert</option><option>Wedding</option><option>Funeral</option><option>Baptism</option><option>Youth Event</option><option>Livestream Only</option><option>Setup / Teardown</option><option>Other</option>
+          </select>
+        </div>
+        <div class="fg"><label>Date *</label><input id="se-date" type="date"></div>
+        <div class="fg"><label>Start time</label><input id="se-time" placeholder="e.g. 6:00 PM"></div>
+        <div class="fg"><label>End time</label><input id="se-endtime" placeholder="e.g. 8:30 PM"></div>
+        <div class="fg" style="grid-column:1/-1"><label>Location</label><input id="se-location" placeholder="e.g. Main Auditorium"></div>
+        <div class="fg" style="grid-column:1/-1"><label>Notes</label><textarea id="se-notes" placeholder="Special requirements, gear needed, call time..." style="min-height:60px"></textarea></div>
+        <div class="fg" style="grid-column:1/-1"><label>📝 Rundown / Cues</label><textarea id="se-rundown" placeholder="Order of event, cues, setlist..." style="min-height:80px"></textarea></div>
+        <div class="fg" style="grid-column:1/-1">
+          <label>Assign Crew &amp; Stations</label>
+          <div id="se-crew" style="display:flex;flex-direction:column;gap:6px;max-height:240px;overflow-y:auto;padding:4px 0"></div>
+        </div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn br bsm" id="se-delete-btn" style="display:none" onclick="deleteSpecialEvent(document.getElementById('se-id').value)">Delete</button>
+      <button class="btn bgh" onclick="document.getElementById('m-addSpecialEvent').style.display='none'">Cancel</button>
+      <button class="btn ba" onclick="saveSpecialEvent()">Save Event</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Add/Edit Rehearsal Modal ══ -->
+<div id="m-addRehearsal" class="mover" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal" style="max-width:560px">
+    <div class="mh"><span class="mt" id="rh-modal-title">🎸 Add Rehearsal</span><button class="xb" onclick="document.getElementById('m-addRehearsal').style.display='none'">✕</button></div>
+    <div class="mb">
+      <input type="hidden" id="rh-id">
+      <div class="fgrid">
+        <div class="fg" style="grid-column:1/-1"><label>Rehearsal Title *</label><input id="rh-title" placeholder="e.g. Sunday Rehearsal, Band Practice, Tech Walkthrough"></div>
+        <div class="fg"><label>Date *</label><input id="rh-date" type="date"></div>
+        <div class="fg"><label>Time</label><input id="rh-time" placeholder="e.g. 9:00 AM"></div>
+        <div class="fg" style="grid-column:1/-1"><label>Location</label><input id="rh-location" placeholder="e.g. Main Auditorium, Room 201"></div>
+        <div class="fg" style="grid-column:1/-1"><label>Notes</label><textarea id="rh-notes" placeholder="What to prepare, what to bring..." style="min-height:60px"></textarea></div>
+        <div class="fg" style="grid-column:1/-1">
+          <label>📝 Rundown / Set List</label>
+          <textarea id="rh-rundown" placeholder="e.g. Welcome · Worship (Way Maker - E, Goodness of God - G) · Prayer · Sermon run-through · Dismiss" style="min-height:80px"></textarea>
+        </div>
+        <div class="fg" style="grid-column:1/-1">
+          <label>Assign Crew</label>
+          <div id="rh-crew" style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto;padding:4px 0"></div>
+        </div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="document.getElementById('m-addRehearsal').style.display='none'">Cancel</button>
+      <button class="btn ba" onclick="saveRehearsal()">Save Rehearsal</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Shift Swap Request Modal ══ -->
+<div id="m-swapRequest" class="mover" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal" style="max-width:440px">
+    <div class="mh"><span class="mt">↔️ Request Shift Swap</span><button class="xb" onclick="document.getElementById('m-swapRequest').style.display='none'">✕</button></div>
+    <div class="mb">
+      <input type="hidden" id="sw-schedKey">
+      <input type="hidden" id="sw-dateKey">
+      <input type="hidden" id="sw-serviceSlot">
+      <div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px">
+        <div style="font-size:12px;font-family:var(--mono);color:var(--dim2);margin-bottom:6px">Swap details</div>
+        <div><strong id="sw-requester">—</strong> requesting swap for</div>
+        <div class="dim" id="sw-date"></div>
+        <div class="dim" id="sw-service"></div>
+      </div>
+      <div class="fgrid">
+        <div class="fg" style="grid-column:1/-1"><label>Swap with *</label><select id="sw-target"></select></div>
+        <div class="fg" style="grid-column:1/-1"><label>Reason (optional)</label><textarea id="sw-reason" placeholder="e.g. Out of town, family commitment, sick..." style="min-height:60px"></textarea></div>
+      </div>
+      <div style="padding:10px 12px;background:#fff3cd;border:1px solid #ffc107;border-radius:6px;font-size:12px;color:#854F0B;margin-top:4px">
+        📧 Admins will be notified and must approve the swap before the schedule is changed.
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn bgh" onclick="document.getElementById('m-swapRequest').style.display='none'">Cancel</button>
+      <button class="btn ba" onclick="submitSwapRequest()">Send Swap Request</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Changelog / What's New Modal ══ -->
+<div id="m-changelog" class="mover" style="display:none" onclick="if(event.target===this)closeM('changelog')">
+  <div class="modal" style="max-width:560px">
+    <div class="mh"><span class="mt">🕐 What's New in KCC Technical</span><button class="xb" onclick="closeM('changelog')">✕</button></div>
+    <div class="mb" style="padding:0">
+      <div id="changelog-list" style="padding:0"></div>
+    </div>
+    <div class="mf">
+      <button class="btn ba" onclick="closeM('changelog')">Got it!</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

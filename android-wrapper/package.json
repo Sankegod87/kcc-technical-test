@@ -1,0 +1,17 @@
+{
+  "name": "kcc-technical-android",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Android / Fire tablet wrapper for KCC Technical (Capacitor)",
+  "scripts": {
+    "prep": "node prep-www.js",
+    "setup": "npm run prep && npx cap add android && node patch-android.js && npx cap sync android",
+    "sync": "npm run prep && node patch-android.js && npx cap sync android",
+    "apk": "npm run sync && cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.0",
+    "@capacitor/cli": "^6.1.0",
+    "@capacitor/core": "^6.1.0"
+  }
+}

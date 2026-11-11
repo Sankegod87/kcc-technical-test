@@ -1,0 +1,557 @@
+{
+  "fixtures": [
+    {
+      "id": "FX-001",
+      "name": "Front Wash L",
+      "location": "Front truss",
+      "bulbType": "LED 200W",
+      "category": "Lighting",
+      "status": "ok",
+      "outageCount": 0,
+      "maintInterval": 90,
+      "addedAt": 1776975566374,
+      "dept": "Lighting"
+    },
+    {
+      "id": "FX-002",
+      "name": "Front Wash R",
+      "location": "Front truss",
+      "bulbType": "LED 200W",
+      "category": "Lighting",
+      "status": "ok",
+      "outageCount": 0,
+      "maintInterval": 90,
+      "addedAt": 1776975566374,
+      "dept": "Lighting"
+    },
+    {
+      "id": "FX-003",
+      "name": "Spot Stage Left",
+      "location": "Balcony",
+      "bulbType": "HMI 575",
+      "category": "Lighting",
+      "status": "out",
+      "outageCount": 0,
+      "maintInterval": 90,
+      "addedAt": 1776975566374,
+      "dept": "Lighting"
+    },
+    {
+      "id": "FX-004",
+      "name": "Backlight 1",
+      "location": "Back truss",
+      "bulbType": "PAR64 1000W",
+      "category": "Lighting",
+      "status": "ok",
+      "outageCount": 0,
+      "maintInterval": 90,
+      "addedAt": 1776975566374,
+      "dept": "Lighting"
+    },
+    {
+      "id": "FX-005",
+      "name": "Choir Wash",
+      "location": "Choir loft",
+      "bulbType": "LED 100W",
+      "category": "Lighting",
+      "status": "ok",
+      "outageCount": 0,
+      "maintInterval": 90,
+      "addedAt": 1776975566374,
+      "dept": "Lighting"
+    },
+    {
+      "id": "FX-006",
+      "name": "Pulpit Spot",
+      "location": "Ceiling",
+      "bulbType": "LED 150W",
+      "category": "Lighting",
+      "status": "ok",
+      "outageCount": 0,
+      "maintInterval": 90,
+      "addedAt": 1776975566374,
+      "dept": "Lighting"
+    }
+  ],
+  "outages": [
+    {
+      "id": "OUT-0",
+      "fixtureId": "FX-002",
+      "fixtureName": "Front Wash R",
+      "bulbType": "LED 200W",
+      "reportedBy": "Sam Okafor",
+      "techId": "t4",
+      "notes": "Dim output",
+      "timestamp": 1793045966374,
+      "resolved": true,
+      "resolvedAt": 1793049566374,
+      "resolvedBy": "Priya Shah"
+    },
+    {
+      "id": "OUT-1",
+      "fixtureId": "FX-003",
+      "fixtureName": "Spot Stage Left",
+      "bulbType": "HMI 575",
+      "reportedBy": "Alex Kim",
+      "techId": "t3",
+      "notes": "Bulb flickers then drops out",
+      "timestamp": 1794248366374,
+      "resolved": false
+    }
+  ],
+  "inventory": [
+    {
+      "bulbType": "LED 200W",
+      "inStock": 6,
+      "threshold": 3,
+      "totalReceived": 10,
+      "totalUsed": 4
+    },
+    {
+      "bulbType": "HMI 575",
+      "inStock": 1,
+      "threshold": 2,
+      "totalReceived": 4,
+      "totalUsed": 3
+    },
+    {
+      "bulbType": "PAR64 1000W",
+      "inStock": 2,
+      "threshold": 2,
+      "totalReceived": 6,
+      "totalUsed": 4
+    }
+  ],
+  "orders": [],
+  "usageLog": [
+    {
+      "date": 1793045966374,
+      "bulbType": "LED 200W",
+      "qty": 1,
+      "fixture": "FX-002",
+      "tech": "Sam Okafor",
+      "techId": "t4"
+    },
+    {
+      "date": 1791663566374,
+      "bulbType": "PAR64 1000W",
+      "qty": 1,
+      "fixture": "FX-004",
+      "tech": "Taylor Brooks",
+      "techId": "t5"
+    }
+  ],
+  "technicians": [
+    {
+      "id": "t1",
+      "name": "Jordan Reyes",
+      "role": "Technical Director",
+      "dept": "Lighting",
+      "avatar": "J",
+      "email": "t1@example.org",
+      "phone": "555-0100",
+      "passwordHash": "s2:677fd0d4628803042a285ed161d737db04d599d639cbbca1e294f25e4ac29365",
+      "canSchedule": true,
+      "userRole": "master",
+      "joinedAt": 1759695566374,
+      "volunteerHours": 20,
+      "onboarding": {},
+      "active": true,
+      "training": []
+    },
+    {
+      "id": "t2",
+      "name": "Priya Shah",
+      "role": "Volunteer",
+      "dept": "Audio",
+      "avatar": "P",
+      "email": "t2@example.org",
+      "phone": "555-0100",
+      "passwordHash": "s2:677fd0d4628803042a285ed161d737db04d599d639cbbca1e294f25e4ac29365",
+      "canSchedule": true,
+      "userRole": "admin",
+      "joinedAt": 1759695566374,
+      "volunteerHours": 20,
+      "onboarding": {},
+      "active": true,
+      "training": []
+    },
+    {
+      "id": "t3",
+      "name": "Alex Kim",
+      "role": "Volunteer",
+      "dept": "Cameras",
+      "avatar": "A",
+      "email": "t3@example.org",
+      "phone": "555-0100",
+      "passwordHash": "s2:677fd0d4628803042a285ed161d737db04d599d639cbbca1e294f25e4ac29365",
+      "canSchedule": false,
+      "userRole": "user",
+      "joinedAt": 1759695566374,
+      "volunteerHours": 20,
+      "onboarding": {},
+      "active": true,
+      "training": []
+    },
+    {
+      "id": "t4",
+      "name": "Sam Okafor",
+      "role": "Volunteer",
+      "dept": "IT",
+      "avatar": "S",
+      "email": "t4@example.org",
+      "phone": "555-0100",
+      "passwordHash": "s2:677fd0d4628803042a285ed161d737db04d599d639cbbca1e294f25e4ac29365",
+      "canSchedule": false,
+      "userRole": "user",
+      "joinedAt": 1759695566374,
+      "volunteerHours": 20,
+      "onboarding": {},
+      "active": true,
+      "training": []
+    },
+    {
+      "id": "t5",
+      "name": "Taylor Brooks",
+      "role": "Volunteer",
+      "dept": "Audio",
+      "avatar": "T",
+      "email": "t5@example.org",
+      "phone": "555-0100",
+      "passwordHash": "s2:677fd0d4628803042a285ed161d737db04d599d639cbbca1e294f25e4ac29365",
+      "canSchedule": false,
+      "userRole": "user",
+      "joinedAt": 1759695566374,
+      "volunteerHours": 20,
+      "onboarding": {},
+      "active": true,
+      "training": []
+    },
+    {
+      "id": "t6",
+      "name": "Morgan Lee",
+      "role": "Volunteer",
+      "dept": "Lighting",
+      "avatar": "M",
+      "email": "t6@example.org",
+      "phone": "555-0100",
+      "passwordHash": "s2:677fd0d4628803042a285ed161d737db04d599d639cbbca1e294f25e4ac29365",
+      "canSchedule": false,
+      "userRole": "user",
+      "joinedAt": 1759695566374,
+      "volunteerHours": 20,
+      "onboarding": {},
+      "active": true,
+      "training": []
+    }
+  ],
+  "settings": {
+    "callTime": "07:30",
+    "serviceTime": "09:00",
+    "autoCallSheets": true,
+    "ytKey": "DEMO-KEY",
+    "ytChannelId": "UCaaaaaaaaaaaaaaaaaaaaaa",
+    "scheduleRoles": [
+      {
+        "name": "Camera Station",
+        "icon": "📷"
+      },
+      {
+        "name": "Sound Mixing",
+        "icon": "🎚️",
+        "restricted": true,
+        "allowed": [
+          "t1",
+          "t2"
+        ]
+      },
+      {
+        "name": "Lighting Station",
+        "icon": "💡"
+      },
+      {
+        "name": "Presentation Station",
+        "icon": "📊"
+      },
+      {
+        "name": "Streaming Station",
+        "icon": "🖥️"
+      },
+      {
+        "name": "Standby",
+        "icon": "⏳"
+      }
+    ]
+  },
+  "gearItems": [
+    {
+      "id": "g1",
+      "name": "Wireless Mic 1",
+      "assetId": "MIC-01",
+      "category": "Audio",
+      "dept": "Audio",
+      "serviceInterval": 90,
+      "qty": 1,
+      "addedAt": 1794255566374
+    },
+    {
+      "id": "g2",
+      "name": "Camera 1 (PTZ)",
+      "assetId": "CAM-01",
+      "category": "Cameras",
+      "dept": "Cameras",
+      "serviceInterval": 180,
+      "qty": 1,
+      "addedAt": 1794255566374
+    },
+    {
+      "id": "g3",
+      "name": "Laptop - Slides",
+      "assetId": "IT-02",
+      "category": "IT",
+      "dept": "IT",
+      "serviceInterval": 180,
+      "qty": 1,
+      "addedAt": 1794255566374
+    }
+  ],
+  "checkouts": [
+    {
+      "id": "c1",
+      "gearId": "g1",
+      "personId": "t5",
+      "checkedOutAt": 1794169166374,
+      "dueDate": 1794428366374,
+      "purpose": "Youth night",
+      "returnedAt": null
+    }
+  ],
+  "maintLogs": [
+    {
+      "id": "m1",
+      "gearId": "g1",
+      "date": 1792527566374,
+      "type": "Battery swap",
+      "by": "Priya Shah",
+      "notes": "New batteries fitted"
+    }
+  ],
+  "schedules": {
+    "2026-11-15": {
+      "crew": [
+        "t1",
+        "t2",
+        "t3",
+        "t4",
+        "t5"
+      ],
+      "roles": {
+        "t1": "Camera Station",
+        "t2": "Streaming Station",
+        "t3": "Camera Station",
+        "t4": "Presentation Station",
+        "t5": "Streaming Station"
+      },
+      "rundown": "Crew call, rig walk · Sound check · Service one · Livestream starts",
+      "briefing": "Youth band this week: two extra mics.",
+      "notes": ""
+    }
+  },
+  "announcements": [
+    {
+      "id": "a1",
+      "title": "Rehearsal Thursday",
+      "body": "Band rehearsal at 7pm. Need audio and lighting.",
+      "author": "Jordan Reyes",
+      "timestamp": 1794169166374,
+      "reactions": {}
+    }
+  ],
+  "techRequests": [
+    {
+      "id": "r1",
+      "title": "Extra wireless mic for youth night",
+      "category": "Audio",
+      "priority": "high",
+      "neededBy": 1794687566374,
+      "requestedBy": "Taylor Brooks",
+      "details": "Need 2 more handhelds for the youth band.",
+      "status": "open",
+      "assignedTo": "",
+      "adminNotes": "",
+      "createdAt": 1794169166374
+    },
+    {
+      "id": "r2",
+      "title": "Replace HMI bulb in Spot Stage Left",
+      "category": "Lighting",
+      "priority": "urgent",
+      "neededBy": 1794514766374,
+      "requestedBy": "Alex Kim",
+      "details": "Flickers and drops out.",
+      "status": "progress",
+      "assignedTo": "Priya Shah",
+      "adminNotes": "Bulb on order.",
+      "createdAt": 1794082766374
+    }
+  ],
+  "trainingModules": [
+    {
+      "id": "tm1",
+      "title": "Camera framing basics",
+      "dept": "Cameras",
+      "desc": "Shot sizes and headroom for the sanctuary cameras.",
+      "url": "",
+      "level": "Beginner",
+      "duration": "25 min",
+      "required": true,
+      "createdAt": 1791663566374,
+      "links": [
+        {
+          "label": "Camera operator guide",
+          "url": "https://example.org/camera-guide.pdf"
+        },
+        {
+          "label": "Framing video",
+          "url": "https://www.youtube.com/watch?v=example"
+        }
+      ],
+      "gearIds": [
+        "g2"
+      ],
+      "quiz": {
+        "pass": 80,
+        "qs": [
+          {
+            "q": "What is 'headroom' in a shot?",
+            "opts": [
+              "Space above the subject's head",
+              "Space left of the subject",
+              "Height of the camera",
+              "Lens zoom amount"
+            ],
+            "a": 0
+          },
+          {
+            "q": "For a speaker at the pulpit, the usual default shot is:",
+            "opts": [
+              "Extreme close-up",
+              "Medium close-up (chest up)",
+              "Wide of the whole stage",
+              "Behind the pulpit"
+            ],
+            "a": 1
+          },
+          {
+            "q": "You should adjust zoom or focus:",
+            "opts": [
+              "While the camera is live on the stream",
+              "Only when the camera is not on air",
+              "Never",
+              "Only during worship"
+            ],
+            "a": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "tm2",
+      "title": "X32 mixing on a Sunday",
+      "dept": "Audio",
+      "desc": "Scenes, mute groups and the band layout.",
+      "url": "",
+      "level": "Intermediate",
+      "duration": "40 min",
+      "required": false,
+      "createdAt": 1792527566374,
+      "links": [
+        {
+          "label": "X32 quick guide",
+          "url": "https://example.org/x32-guide.pdf"
+        }
+      ],
+      "quiz": {
+        "pass": 70,
+        "qs": [
+          {
+            "q": "Before the service starts you should check that the main LR is:",
+            "opts": [
+              "Muted",
+              "On (not muted)",
+              "Unplugged",
+              "At -90 dB"
+            ],
+            "a": 1
+          },
+          {
+            "q": "A mute group is used to:",
+            "opts": [
+              "Change the show file",
+              "Mute several channels at once",
+              "Record the service",
+              "Update firmware"
+            ],
+            "a": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "tm3",
+      "title": "Safe use of lifts and truss",
+      "dept": "Lighting",
+      "desc": "Spotter rules, harnesses and who signs off.",
+      "url": "",
+      "level": "Advanced",
+      "duration": "30 min",
+      "required": true,
+      "createdAt": 1793391566374,
+      "links": [
+        {
+          "label": "Lift safety checklist",
+          "url": "https://example.org/lift-safety.pdf"
+        }
+      ]
+    }
+  ],
+  "auditLog": [
+    {
+      "id": "al3",
+      "action": "Fixture reported out",
+      "detail": "FX-003 Spot Stage Left",
+      "by": "Alex Kim",
+      "byId": "t3",
+      "at": 1794248366374
+    },
+    {
+      "id": "al2",
+      "action": "Schedule updated",
+      "detail": "Sunday roster: 5 crew",
+      "by": "Priya Shah",
+      "byId": "t2",
+      "at": 1794237566374
+    },
+    {
+      "id": "al1",
+      "action": "Bulb batch received",
+      "detail": "LED 200W x 6",
+      "by": "Jordan Reyes",
+      "byId": "t1",
+      "at": 1794169166374
+    }
+  ],
+  "usedBulbs": [],
+  "bulbRegistry": [],
+  "shows": [],
+  "rehearsals": [],
+  "swapRequests": [],
+  "vendors": [],
+  "specialEvents": [],
+  "serviceNotes": [],
+  "feedbackItems": [],
+  "incidentReports": [],
+  "availability": {},
+  "checklistState": {},
+  "signoffs": {}
+}
