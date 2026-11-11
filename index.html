@@ -25,6 +25,8 @@
 
 <!-- Firebase v10 -->
 <script src="kcc-schema.js"></script>
+<script src="firebase-config.js"></script>
+<script src="beta-guard.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, doc, getDoc, onSnapshot, runTransaction, serverTimestamp }
@@ -36,7 +38,7 @@ import { getAuth, signInWithCustomToken, signOut, onIdTokenChanged }
 // ═══════════════════════════════════════════════════
 // 🔧 FIREBASE CONFIG
 // ═══════════════════════════════════════════════════
-const firebaseConfig = {
+const firebaseConfig = window.KCC_FIREBASE_CONFIG || {
   apiKey:            "AIzaSyCWuthng40k55iBrQAccYE4zCg012Pt2fA",
   authDomain:        "light-tracker-d708f.firebaseapp.com",
   projectId:         "light-tracker-d708f",
