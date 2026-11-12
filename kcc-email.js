@@ -41,7 +41,7 @@
     if (o.run && o.run.length) h += block(label('Run of show') + list(o.run, true));
     if (o.tasks && o.tasks.length) h += block(label('Your checklist — ' + (o.role || '')) + list(o.tasks, false));
     if (o.team && o.team.length) h += block(label('The team') + o.team.map(function (t) { return chip(t.name + (t.role ? ' · ' + t.role : '')); }).join(''));
-    if (o.weather) h += block(label('Sunday forecast \u00B7 Edmonton') + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="background:' + C.tile + ';border:1px solid ' + C.line + ';border-radius:14px;padding:14px 18px;"><div style="font-size:20px;color:' + C.text + ';font-weight:800;">' + o.weather.icon + ' ' + esc(o.weather.summary) + '</div><div style="font-size:14px;color:' + C.dim + ';margin-top:6px;">High ' + esc(o.weather.high) + '\u00B0C &middot; Low ' + esc(o.weather.low) + '\u00B0C' + (o.weather.pop != null ? ' &middot; ' + esc(o.weather.pop) + '% precipitation' : '') + (o.weather.wind != null ? ' &middot; wind ' + esc(o.weather.wind) + ' km/h' : '') + '</div>' + (o.weather.tip ? '<div style="font-size:14px;color:' + C.warnText + ';margin-top:10px;background:' + C.warnBg + ';border:1px solid ' + C.warnLine + ';border-radius:10px;padding:8px 12px;">' + esc(o.weather.tip) + '</div>' : '') + '</td></tr></table>');
+    if (o.weather) h += block(label('Sunday forecast \u00B7 Airdrie') + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="background:' + C.tile + ';border:1px solid ' + C.line + ';border-radius:14px;padding:14px 18px;"><div style="font-size:20px;color:' + C.text + ';font-weight:800;">' + o.weather.icon + ' ' + esc(o.weather.summary) + '</div><div style="font-size:14px;color:' + C.dim + ';margin-top:6px;">High ' + esc(o.weather.high) + '\u00B0C &middot; Low ' + esc(o.weather.low) + '\u00B0C' + (o.weather.pop != null ? ' &middot; ' + esc(o.weather.pop) + '% precipitation' : '') + (o.weather.wind != null ? ' &middot; wind ' + esc(o.weather.wind) + ' km/h' : '') + '</div>' + (o.weather.tip ? '<div style="font-size:14px;color:' + C.warnText + ';margin-top:10px;background:' + C.warnBg + ';border:1px solid ' + C.warnLine + ';border-radius:10px;padding:8px 12px;">' + esc(o.weather.tip) + '</div>' : '') + '</td></tr></table>');
     (o.events || []).forEach(function (ev) { h += block(label('Special event') + '<div style="font-size:15px;color:' + C.text + ';line-height:1.5;"><b>' + esc(ev.title) + '</b><br>' + esc([ev.when, ev.where].filter(Boolean).join(' \u00B7 ')) + (ev.notes ? '<br><span style="color:' + C.dim + ';">' + esc(ev.notes) + '</span>' : '') + '</div>'); });
     if (o.rehearsal) h += block(label('Rehearsal') + '<div style="font-size:15px;color:' + C.text + ';line-height:1.5;"><b>' + esc(o.rehearsal.title) + '</b><br>' + esc([o.rehearsal.when, o.rehearsal.where].filter(Boolean).join(' · ')) + (o.rehearsal.notes ? '<br><span style="color:' + C.dim + ';">' + esc(o.rehearsal.notes) + '</span>' : '') + '</div>');
     if (o.gear && o.gear.length) h += block(label('Gear you have checked out') + list(o.gear.map(function (g) { return g.name + (g.due ? ' — due ' + g.due : ''); }), false));
@@ -51,7 +51,7 @@
     if (o.stream) h += block(label('Livestream') + '<a href="' + url(o.stream) + '" style="color:' + C.acc + ';font-size:15px;">' + esc(o.stream) + '</a>');
     var foot = button(o.appUrl, 'Open KCC Technical', !(o.confirmUrl || o.swapUrl));
     if (foot) h += block(foot, 20);
-    if (o.contact && (o.contact.name || o.contact.phone || o.contact.email)) h += block('<div style="font-size:13px;color:' + C.dim + ';line-height:1.6;border-top:1px solid ' + C.line + ';padding-top:14px;">Questions or can’t make it? Contact ' + esc(o.contact.name || 'the team') + (o.contact.phone ? ' · ' + esc(o.contact.phone) : '') + (o.contact.email ? ' · ' + esc(o.contact.email) : '') + '</div>', 8);
+    if (o.contact && (o.contact.name || o.contact.phone || o.contact.email)) h += block('<div style="font-size:13px;color:' + C.dim + ';line-height:1.6;border-top:1px solid ' + C.line + ';padding-top:14px;">Questions or can’t make it? Contact ' + esc(o.contact.name || 'the team') + (o.contact.phone ? ' · <a href="tel:' + esc(String(o.contact.phone).replace(/[^\d+]/g, '')) + '" style="color:' + C.acc + ';text-decoration:none;">' + esc(o.contact.phone) + '</a>' : '') + (o.contact.email ? ' · <a href="mailto:' + esc(o.contact.email) + '" style="color:' + C.acc + ';text-decoration:none;">' + esc(o.contact.email) + '</a>' : '') + '</div>', 8);
     return h;
   }
 
@@ -88,12 +88,12 @@
     return h;
   }
 
-  // Sunday forecast for Edmonton from Open-Meteo (free, no key). Returns null if it cannot be fetched.
+  // Sunday forecast for Airdrie, Alberta from Open-Meteo (free, no key). Returns null if it cannot be fetched.
   var WMO = [[[0], '\u2600\uFE0F', 'Clear'], [[1, 2], '\u26C5', 'Partly cloudy'], [[3], '\u2601\uFE0F', 'Cloudy'], [[45, 48], '\uD83C\uDF2B\uFE0F', 'Fog'],
     [[51, 53, 55, 56, 57], '\uD83C\uDF26\uFE0F', 'Drizzle'], [[61, 63, 65, 66, 67, 80, 81, 82], '\uD83C\uDF27\uFE0F', 'Rain'], [[71, 73, 75, 77, 85, 86], '\u2744\uFE0F', 'Snow'], [[95, 96, 99], '\u26C8\uFE0F', 'Thunderstorms']];
   function weatherFor(dateKey, fetchFn) {
     var f = fetchFn || (typeof fetch === 'function' ? fetch : null); if (!f || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey || '')) return Promise.resolve(null);
-    var u = 'https://api.open-meteo.com/v1/forecast?latitude=53.5461&longitude=-113.4938&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,snowfall_sum,wind_speed_10m_max&timezone=America%2FEdmonton&forecast_days=16';
+    var u = 'https://api.open-meteo.com/v1/forecast?latitude=51.2917&longitude=-114.0144&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,snowfall_sum,wind_speed_10m_max&timezone=America%2FEdmonton&forecast_days=16';
     var timer = new Promise(function (res) { setTimeout(function () { res(null); }, 5000); });
     var get = Promise.resolve().then(function () { return f(u); }).then(function (r) { return r && r.ok ? r.json() : null; }).then(function (j) {
       var d = j && j.daily; if (!d || !d.time) return null; var i = d.time.indexOf(dateKey); if (i < 0) return null;
