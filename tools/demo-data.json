@@ -246,8 +246,8 @@
     }
   ],
   "settings": {
-    "callTime": "07:30",
-    "serviceTime": "09:00",
+    "callTime": "09:00",
+    "serviceTime": "10:30",
     "autoCallSheets": true,
     "ytKey": "DEMO-KEY",
     "ytChannelId": "UCaaaaaaaaaaaaaaaaaaaaaa",

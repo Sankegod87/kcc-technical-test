@@ -217,8 +217,8 @@ function sdNextSunday(){
 }
 function sdTimes(sun){
   const set=db.settings||{};
-  const [ch,cm]=String(set.callTime||'08:00').split(':').map(Number);
-  const [sh,sm]=String(set.serviceTime||'09:00').split(':').map(Number);
+  const [ch,cm]=String(set.callTime||'09:00').split(':').map(Number);
+  const [sh,sm]=String(set.serviceTime||'10:30').split(':').map(Number);
   const call=new Date(sun); call.setHours(ch||0,cm||0,0,0);
   const svc=new Date(sun); svc.setHours(sh||0,sm||0,0,0);
   return {call,svc};
@@ -245,7 +245,7 @@ function sdCheck(key,checked){
 function sdPickStation(name){ window._sdStation=name; renderSunday(); }
 function sdSetCallTime(){
   if(!isAdmin()){toast('Admin permission required','error');return;}
-  const v=prompt('Call time (24h, e.g. 08:00)',(db.settings.callTime||'08:00'));
+  const v=prompt('Call time (24h, e.g. 09:00)',(db.settings.callTime||'09:00'));
   if(v&&/^\d{1,2}:\d{2}$/.test(v.trim())){db.settings.callTime=v.trim();save();renderSunday();}
 }
 function sdReportOutage(){

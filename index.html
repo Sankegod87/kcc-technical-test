@@ -703,6 +703,7 @@ initFirebase();
         <option value="ok">✅ OK Only</option>
         <option value="maint">🔧 Maint Due</option>
       </select>
+      <button class="btn bgh" data-perm="admin" onclick="qrPrintFixtures()">🏷️ Print QR labels</button>
       <button class="btn bgh" data-perm="admin" onclick="downloadImportTemplate('fixtures')">📄 Template</button>
       <button class="btn bgh" data-perm="admin" onclick="openImportModal('fixtures')">⬆️ Import</button>
       <button class="btn ba" data-perm="admin" onclick="openM('addFixture')">+ Add Fixture</button>
@@ -1991,6 +1992,7 @@ initFirebase();
 <script src="js/33-station-manuals.js"></script>
 <script src="js/34-restricted-stations.js"></script>
 <script src="js/35-practical-sheet.js"></script>
+<script src="js/36-service-times.js"></script>
 <script src="js/22-server.js"></script>
 <script src="js/17-gear-training.js"></script>
 

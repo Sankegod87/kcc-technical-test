@@ -158,8 +158,8 @@ exports.autoCallSheets = functions.pubsub.schedule("every 60 minutes").timeZone(
   const sunUtc = new Date(Date.UTC(p.y, p.m - 1, p.d + add));
   const sy = sunUtc.getUTCFullYear(), sm = sunUtc.getUTCMonth() + 1, sd = sunUtc.getUTCDate();
   const key = `${sy}-${pad2(sm)}-${pad2(sd)}`;
-  const [ch, cm] = String(settings.callTime || "08:00").split(":").map(Number);
-  const [vh, vm] = String(settings.serviceTime || "09:00").split(":").map(Number);
+  const [ch, cm] = String(settings.callTime || "09:00").split(":").map(Number);
+  const [vh, vm] = String(settings.serviceTime || "10:30").split(":").map(Number);
   const callAt = tzEpoch(sy, sm, sd, ch || 0, cm || 0);
   if (now < callAt - 48 * 36e5 || now > callAt + 15 * 36e5) return null;
 

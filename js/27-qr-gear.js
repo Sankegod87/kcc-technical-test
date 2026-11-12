@@ -12,6 +12,16 @@
     items.forEach((g,i)=>{ try{ new QRCode(document.getElementById('qrl'+i),{text:codeOf(g),width:110,height:110,colorDark:'#000',colorLight:'#fff',correctLevel:QRCode.CorrectLevel.M}); }catch(e){} });
     setTimeout(()=>window.print(),500);
   };
+  // QR labels for stage fixtures (code = fixture ID; scanning opens the normal scan sheet)
+  window.qrPrintFixtures=function(){
+    const fx=(db.fixtures||[]); if(!fx.length){ toast('No fixtures yet','error'); return; }
+    if(typeof QRCode==='undefined'){ toast('QR library not loaded','error'); return; }
+    const pa=document.getElementById('printArea');
+    pa.innerHTML='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-family:monospace;background:#fff">'+fx.map((f,i)=>
+      `<div style="border:1px dashed #999;padding:8px;text-align:center;break-inside:avoid;color:#000"><div id="qrf${i}" style="display:inline-block"></div><div style="font-weight:700;font-size:12px;margin-top:4px">${E(f.id)}</div><div style="font-size:9px;color:#555">${E(f.name||f.type||'')}</div></div>`).join('')+'</div>';
+    fx.forEach((f,i)=>{ try{ new QRCode(document.getElementById('qrf'+i),{text:String(f.id),width:100,height:100,colorDark:'#000',colorLight:'#fff',correctLevel:QRCode.CorrectLevel.M}); }catch(e){} });
+    setTimeout(()=>window.print(),500);
+  };
   // ── rapid scan ──
   const RS={on:false,scanner:null,mode:'auto',last:'',lastAt:0,log:[]};
   window.rsHandle=function(raw){
