@@ -1,0 +1,21 @@
+# Deploys the server side (Cloud Functions + Firestore rules) to the BETA Firebase project only,
+# whenever the server files change on main. It never touches the live project.
+name: Deploy beta server
+on:
+  push:
+    branches: [main]
+    paths: ['index.js', 'kcc-auth.js', 'kcc-auth-core.js', 'kcc-schema.js', 'firestore.rules', 'firebase.json', 'package.json']
+  workflow_dispatch: {}
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --omit=dev --no-audit --no-fund
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_BETA_KEY }}
+      - name: Deploy to cc-technical-beta only
+        run: npx --yes firebase-tools@13 deploy --only functions,firestore:rules --project cc-technical-beta --non-interactive
