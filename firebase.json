@@ -1,4 +1,4 @@
 {
-  "functions": { "source": ".", "ignore": ["node_modules", "tests", "tools", "js", "css", "manuals", "android-wrapper", "site", "*.png", "*.svg", "index.html", "service-worker.js", "manifest.json", "*.md"] },
+  "functions": { "source": ".", "ignore": ["node_modules", "tests", "tools", "js", "css", "manuals", "android-wrapper", "site", "demo", ".github", "v2", "*.png", "*.svg", "index.html", "service-worker.js", "manifest.json", "*.md"] },
   "firestore": { "rules": "firestore.rules" }
 }
