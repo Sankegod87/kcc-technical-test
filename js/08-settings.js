@@ -398,14 +398,17 @@ function restoreBackup(input){
   const r=new FileReader();
   r.onload=()=>{
     let b; try{ b=JSON.parse(r.result); }catch(e){ toast('That file is not a valid backup','error'); return; }
-    const d=b&&b.kcc_backup&&b.data;
+    // New backups are {kcc_backup:1,data:{...}}. The old app's Backup button saves the data object itself, so accept that too.
+    const oldFmt=!!(b&&!b.kcc_backup&&Array.isArray(b.technicians));
+    const d=b&&b.kcc_backup?b.data:(oldFmt?b:null);
     if(!d||!Array.isArray(d.technicians)||!d.technicians.some(t=>t.userRole==='master')){ toast('That file is not a KCC Technical backup','error'); return; }
-    const when=new Date(b.savedAt||0).toLocaleString();
+    const when=oldFmt?'the old app (no date)':new Date(b.savedAt||0).toLocaleString();
     requirePin(()=>{
-      if(!confirm('Replace ALL current data on every device with the backup from '+when+'?\n\nThis cannot be undone. Download a backup of the current data first if unsure.')) return;
+      if(!confirm('Replace ALL current data on every device with the backup from '+when+'?'+(oldFmt?'\n\nThis is a backup from the OLD app: gear, fixtures, schedules and settings are copied, but crew accounts are not (use the migration step for people and passwords).':'')+'\n\nThis cannot be undone. Download a backup of the current data first if unsure.')) return;
       // Crew accounts, roles and passwords live on the server and are not changed by a restore. Old backups may carry password hashes or the YouTube key: drop them.
       const keepCrew=db.technicians; delete d.technicians; if(d.settings) delete d.settings.ytKey;
-      db=Object.assign({fixtures:[],outages:[],inventory:[],orders:[],usageLog:[],technicians:keepCrew,settings:{}},d);
+      const keep={}; Object.keys(db).forEach(k=>{ if(!(k in d)) keep[k]=db[k]; }); // anything the backup does not have (e.g. newer features) stays as it is now
+      db=Object.assign({fixtures:[],outages:[],inventory:[],orders:[],usageLog:[],technicians:keepCrew,settings:{}},keep,d);
       lsave(); try{ localStorage.removeItem(SYNC_BASE_KEY); }catch(e){}
       save(); toast('Backup restored','success'); refreshPage();
     });

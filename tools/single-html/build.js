@@ -7,7 +7,7 @@ const { FAKE } = require('../../tests/fake-modules.js');
 const r = f => fs.readFileSync(path.join(ROOT, f), 'utf8'), b64 = f => fs.readFileSync(path.join(ROOT, f)).toString('base64');
 const safe = s => s.replace(/<\/script/gi, '<\\/script');
 const be = esbuild.buildSync({ entryPoints: [path.join(__dirname, 'backend-entry.js')], bundle: true, write: false, format: 'iife', platform: 'browser', minify: true,
-  alias: { crypto: path.join(__dirname, 'crypto-shim.js') }, external: ['firebase-admin'], loader: { '.json': 'json' }, define: { global: 'window', 'process.env.NODE_ENV': '"production"' },
+  alias: { crypto: path.join(__dirname, 'crypto-shim.js') }, external: ['firebase-admin', 'fs'], loader: { '.json': 'json' }, define: { global: 'window', 'process.env.NODE_ENV': '"production"' },
   inject: [path.join(__dirname, 'buffer-inject.js')], nodePaths: [path.join(ROOT, 'node_modules')].concat((process.env.NODE_PATH || '').split(path.delimiter).filter(Boolean)) }).outputFiles[0].text;
 let h = r('index.html');
 h = h.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>\n?/, '');
