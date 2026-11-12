@@ -16,7 +16,8 @@
   // Master admin only: download a full copy of the app's data as a file (a backup, and the input for the migration test).
   window.kccBackupDownload=function(){
     try{
-      var data=JSON.stringify(window.db||{}), d=new Date().toISOString().slice(0,10);
+      var src=(typeof db!=='undefined'?db:null); if(!src||!Array.isArray(src.technicians)||!src.technicians.length){ alert('Backup stopped: the app data is not loaded yet. Wait for it to finish loading, then try again.'); return; }
+      var data=JSON.stringify(src), d=new Date().toISOString().slice(0,10);
       var a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([data],{type:'application/json'}));
       a.download='kcc-backup-'+d+'.json'; document.body.appendChild(a); a.click(); a.remove();
       if(typeof toast==='function') toast('Backup downloaded. It contains password hashes: keep the file private.','success');
