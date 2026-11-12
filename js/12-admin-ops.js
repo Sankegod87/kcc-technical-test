@@ -292,7 +292,7 @@ async function _notifySwapAdmins(swap){
   const admins=(db.technicians||[]).filter(t=>t.email&&(t.userRole==='master'||t.userRole==='admin'));
   const dateStr=new Date(swap.dateKey+'T12:00:00').toLocaleDateString('en-CA',{weekday:'long',month:'long',day:'numeric'});
   for(const admin of admins){
-    try{await emailjs.send(EJSID,EJTPL,{to_email:admin.email,to_name:admin.name,subject:'↔️ Shift swap: '+swap.requesterName,message:`Shift Swap Request\n\nFrom: ${swap.requesterName}\nWith: ${swap.targetName}\nDate: ${dateStr} (${swap.serviceSlot==='9am'?'9:00 AM':'11:00 AM'})\nReason: ${swap.reason||'No reason given'}\n\nApprove or deny in the app.\n\n— KCC Technical`,fixture_name:'↔️ '+swap.requesterName+' ↔ '+swap.targetName,fixture_id:swap.schedKey,bulb_type:dateStr,reported_by:swap.requesterName});}
+    try{await emailjs.send(EJSID,EJTPL,kccNoticeParams(admin,'↔️ Shift swap: '+swap.requesterName,{tone:'blue',badge:'Shift swap request',headline:swap.requesterName+' wants to swap with '+swap.targetName,rows:[['From',swap.requesterName],['With',swap.targetName],['Date',dateStr+' ('+(swap.serviceSlot==='9am'?'9:00 AM':'11:00 AM')+')'],['Reason',swap.reason||'No reason given']],body:'Approve or deny in the app.'},{fixture_name:'↔️ '+swap.requesterName+' ↔ '+swap.targetName,fixture_id:swap.schedKey}));}
     catch(e){console.warn('Swap notify failed',e);}
   }
 }
@@ -392,29 +392,15 @@ async function sendScheduleEmails(dateKey, entry){
   const dateStr = date.toLocaleDateString('en-CA',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
   const savedBy = getCurTech()?.name || 'Scheduler';
   let sent = 0, skipped = 0;
-
+  const wx = await KCC_EMAIL.weatherFor(dateKey);
   for(const techId of (entry.crew||[])){
     const t = db.technicians.find(x=>x.id===techId);
     if(!t) continue;
     if(!t.email || !t.email.includes('@')){ skipped++; continue; }
 
-    const roleForDay = entry.roles?.[techId] || t.role || 'Crew';
-    const allCrew = (entry.crew||[])
-      .map(id=>db.technicians.find(x=>x.id===id))
-      .filter(Boolean)
-      .map(x=>x.name)
-      .join(', ');
-
     try{
-      await emailjs.send(EJSID, EJTPL_SCHED, {
-        to_email:     t.email,
-        to_name:      t.name,
-        date:         dateStr,
-        role:         roleForDay,
-        crew:         allCrew,
-        notes:        entry.notes ? 'Notes: ' + entry.notes : '',
-        scheduled_by: savedBy
-      });
+      await emailjs.send(EJSID, EJTPL, kccEmailParams(t,'Your schedule: '+dateStr,
+        KCC_EMAIL.schedule(Object.assign(kccEmailCtx(dateKey,t,date,null,'schedule'),{weather:wx,confirmUrl:'',swapUrl:'',intro:'Here is your assignment for '+date.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})+'.'}))));
       sent++;
     } catch(e){
       console.warn('Schedule email failed for '+t.name, e);

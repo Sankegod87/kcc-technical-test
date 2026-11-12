@@ -172,6 +172,8 @@ exports.autoCallSheets = functions.pubsub.schedule("every 60 minutes").timeZone(
   const dateStr = new Date(Date.UTC(sy, sm - 1, sd)).toLocaleDateString("en-US", { timeZone: "UTC", weekday: "long", month: "long", day: "numeric" });
   const team = entry.crew.map((id) => { const t = (appData.technicians || []).find((x) => x.id === id); return t ? t.name + (entry.roles && entry.roles[id] ? ` (${entry.roles[id]})` : "") : ""; }).filter(Boolean);
   const run = (entry.rundown || "").split(/\n|·/).map((x) => x.trim()).filter(Boolean);
+  const rehearsals = await readKey("rehearsals", []), checkouts = await readKey("checkouts", []), gearItems = await readKey("gearItems", []), modules = await readKey("trainingModules", []), specialEvents = await readKey("specialEvents", []);
+  const weather = await require("./kcc-email.js").weatherFor(key);
   let count = 0;
 
   for (const id of entry.crew) {
@@ -179,17 +181,32 @@ exports.autoCallSheets = functions.pubsub.schedule("every 60 minutes").timeZone(
     const mark = `${key}_${id}`;
     if (!t || !t.email || sent[mark] || (entry.callSheetSent && entry.callSheetSent[id])) continue;
     const role = entry.roles && entry.roles[id];
-    const sig = process.env.APP_URL ? await kcc._core.linkSig(key, id) : "";
-    const link = process.env.APP_URL ? `\nConfirm you are coming (one tap, no sign-in): ${process.env.APP_URL}?confirm=${encodeURIComponent(key)}&tech=${encodeURIComponent(id)}&sig=${sig}` : "";
-    const message = [`Hi ${t.name},`, "", `You are scheduled for ${dateStr}.`, `Station: ${role || "Not assigned yet"}`,
-      `Call time: ${fmtT(ch || 0, cm || 0)}   Service: ${fmtT(vh || 0, vm || 0)}`, "",
-      run.length ? "Run of show:\n" + run.map((x, i) => `${i + 1}. ${x}`).join("\n") + "\n" : "",
-      entry.briefing ? `Briefing: ${entry.briefing}\n` : "", team.length ? `Team: ${team.join(", ")}\n` : "", link, "", "KCC Technical"].join("\n");
+    const base = process.env.APP_URL || "";
+    const sig = base ? await kcc._core.linkSig(key, id) : "";
+    const q = (k, extra) => base + "?" + k + "=" + encodeURIComponent(key) + "&tech=" + encodeURIComponent(id) + (extra || "");
+    const rh = rehearsals.filter((r) => r.date >= now - 864e5 && r.date <= sunUtc.getTime() + 864e5 && (!(r.crew || []).length || r.crew.includes(id))).sort((x, y) => x.date - y.date)[0];
+    const dcount = Math.round((callAt - now) / 864e5);
+    const html = require("./kcc-email.js").schedule({
+      name: t.name, dateStr, role: role || "", callTime: fmtT(ch || 0, cm || 0), svcTime: fmtT(vh || 0, vm || 0),
+      intro: "Here is your call sheet for " + dateStr + ".",
+      countdown: dcount > 1 ? "Call time is in " + dcount + " days." : dcount === 1 ? "Call time is tomorrow." : dcount === 0 ? "Call time is today." : "",
+      team: entry.crew.map((cid) => { const x = (appData.technicians || []).find((y) => y.id === cid); return x ? { name: x.name, role: (entry.roles && entry.roles[cid]) || "" } : null; }).filter(Boolean),
+      run, tasks: (role && settings.checklistTasks && settings.checklistTasks[role]) || [], briefing: entry.briefing || "",
+      rehearsal: rh ? { title: rh.title, when: new Date(rh.date).toLocaleDateString("en-US", { timeZone: TZ, weekday: "short", month: "short", day: "numeric" }) + (rh.time ? " at " + rh.time : ""), where: rh.location, notes: rh.notes } : null,
+      gear: checkouts.filter((c) => c.personId === id && !c.returnedAt).map((c) => { const g = gearItems.find((x) => x.id === c.gearId); return { name: g ? g.name : "Gear item", due: c.dueDate ? new Date(c.dueDate).toLocaleDateString("en-US", { timeZone: TZ, month: "short", day: "numeric" }) : "" }; }),
+      pending: modules.filter((m) => m.mandatory && !(t.completedModules || []).includes(m.id)).map((m) => m.title),
+      weather,
+      events: specialEvents.filter((r) => r.date >= now - 864e5 && r.date <= sunUtc.getTime() + 864e5 && (!(r.crew || []).length || r.crew.includes(id))).sort((x, y) => x.date - y.date).map((r) => ({ title: r.title, when: new Date(r.date).toLocaleDateString("en-US", { timeZone: TZ, weekday: "short", month: "short", day: "numeric" }) + (r.time ? " at " + r.time : ""), where: r.location, notes: r.notes })),
+      stationTraining: role ? modules.filter((m) => !m.mandatory && (m.stations || []).includes(role) && !(t.completedModules || []).includes(m.id)).map((m) => m.title) : [],
+      stream: settings.ytChannelId ? "https://www.youtube.com/channel/" + settings.ytChannelId + "/live" : "",
+      contact: Object.assign({ name: "Isaac", phone: "587-664-3421", email: "ayodejiiojo@gmail.com" }, settings.emailContact || {}),
+      confirmUrl: base ? q("confirm", sig ? "&sig=" + encodeURIComponent(sig) : "") : "", swapUrl: base ? q("swap") : "", appUrl: base,
+    });
     try {
       const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ service_id: EJ_SERVICE, template_id: EJ_TEMPLATE, user_id: process.env.EMAILJS_PUBLIC_KEY, accessToken: process.env.EMAILJS_PRIVATE_KEY,
-          template_params: { to_email: t.email, to_name: t.name, subject: "Call sheet: " + dateStr, message, fixture_name: "Call sheet for " + dateStr, fixture_id: key, bulb_type: dateStr, reported_by: "KCC Technical" } }),
+          template_params: { to_email: t.email, to_name: t.name, subject: "Call sheet: " + dateStr, message: "", html, fixture_name: "Call sheet for " + dateStr, fixture_id: key, bulb_type: dateStr, reported_by: "KCC Technical" } }),
       });
       if (!res.ok) throw new Error(`EmailJS ${res.status}: ${await res.text()}`);
       sent[mark] = Date.now(); count++;

@@ -38,7 +38,7 @@ window.KCC_STARTER_MODULES=[
    {q:'Which setting must be on for you to edit the roster?',opts:['Admin PIN','Can edit schedule on your profile','Show unavailable crew','Auto-send'],a:1},
    {q:'"Email call sheets now" sends to:',opts:['Everyone, every time','Everyone who has not received one yet','Only admins','Only people who confirmed'],a:1},
    {q:'What does "Remind N unconfirmed" do?',opts:['Texts the whole crew','Emails a fresh call sheet only to the people who have not confirmed','Removes them from the roster','Marks them confirmed'],a:1},
-   {q:'In-app auto-send (48 hours before call) only works if:',opts:['The server is on','An admin has the app open in that window','Everyone is online','It is a Sunday'],a:1},
+   {q:'Automatic call sheets (48 hours before call) are sent by:',opts:['Whoever opens the app first','The server, even when nobody has the app open','Each crew member\'s phone','Only the master, by hand'],a:1},
    {q:'Someone on the roster has no email on their profile. What happens to their call sheet?',opts:['It is sent to the admin','They are skipped','It is texted','It is held until Monday'],a:1},
    {q:'Before service, each rostered station must:',opts:['Be deleted','Sign off as ready','Send an email','Log hours'],a:1}]},
   practical:{pass:80,items:[

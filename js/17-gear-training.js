@@ -335,16 +335,7 @@ async function sendOverdueAlert(coId){
   if(!p||!p.email){toast('No email for this crew member','error');return;}
   const daysOver=Math.round((Date.now()-co.dueDate)/(1000*60*60*24));
   try{
-    await emailjs.send(EJSID,EJTPL,{
-      to_email:p.email,
-      to_name:p.name,
-      subject:'⚠️ Overdue gear: '+g.name,
-      message:`Hi ${p.name},\n\nThis is a reminder that "${g.name}" was due back ${daysOver} day${daysOver!==1?'s':''} ago. Please return it as soon as possible.\n\nChecked out: ${fmtDate(co.checkedOutAt)}\nDue: ${fmtDate(co.dueDate)}\n\n— KCC Technical`,
-      fixture_name:'⚠️ Overdue: '+g.name,
-      fixture_id:g.assetId||co.gearId,
-      bulb_type:'Overdue '+daysOver+' day'+(daysOver!==1?'s':''),
-      reported_by:'KCC Technical System'
-    });
+    await emailjs.send(EJSID,EJTPL,kccNoticeParams(p,'⚠️ Overdue gear: '+g.name,{tone:'red',badge:'Overdue',headline:'"'+g.name+'" was due back '+daysOver+' day'+(daysOver!==1?'s':'')+' ago',rows:[['Checked out',fmtDate(co.checkedOutAt)],['Due',fmtDate(co.dueDate)]],body:'Please return it as soon as possible.'},{fixture_name:'⚠️ Overdue: '+g.name,fixture_id:g.assetId||co.gearId}));
     toast('📧 Overdue reminder sent to '+p.name,'success');
   }catch(e){toast('Email failed: '+e.text,'error');}
 }
@@ -389,16 +380,7 @@ async function saveIncidentReport(){
   const admins=(db.technicians||[]).filter(t=>t.email&&(t.userRole==='master'||t.userRole==='admin'));
   for(const admin of admins){
     try{
-      await emailjs.send(EJSID,EJTPL,{
-        to_email:admin.email,
-        to_name:admin.name,
-        subject:'⚠️ Damage report: '+g.name,
-        message:`Incident Report\n\nGear: ${g.name}${g.assetId?' ('+g.assetId+')':''}\nSeverity: ${severity}\nReported by: ${tech?tech.name:'Unknown'}\nDate: ${fmtDate(report.date)}\n\nDescription:\n${description}\n\n— KCC Technical`,
-        fixture_name:'⚠️ '+severity+': '+g.name,
-        fixture_id:g.assetId||gearId,
-        bulb_type:'Damage Report · '+severity,
-        reported_by:tech?tech.name:'Unknown'
-      });
+      await emailjs.send(EJSID,EJTPL,kccNoticeParams(admin,'⚠️ Damage report: '+g.name,{tone:'red',badge:'Damage report \u00B7 '+severity,headline:g.name+(g.assetId?' ('+g.assetId+')':'')+' was reported damaged',rows:[['Severity',severity],['Reported by',tech?tech.name:'Unknown'],['Date',fmtDate(report.date)]],body:description},{fixture_name:'⚠️ '+severity+': '+g.name,fixture_id:g.assetId||gearId}));
     }catch(e){console.warn('Incident email failed',e);}
   }
   if(admins.length) toast('📧 Admins notified','info');
@@ -412,16 +394,7 @@ async function checkLowStockAlerts(){
   for(const admin of admins){
     for(const g of items){
       try{
-        await emailjs.send(EJSID,EJTPL,{
-          to_email:admin.email,
-          to_name:admin.name,
-          subject:'📦 Low stock: '+g.name,
-          message:`Low Stock Alert\n\n${g.name} is running low.\nCurrent qty: ${g.qty}\nAlert threshold: ${g.lowStockAt}\n\nPlease restock soon.\n\n— KCC Technical`,
-          fixture_name:'📦 Low Stock: '+g.name,
-          fixture_id:g.assetId||g.id,
-          bulb_type:'Qty: '+g.qty+' (threshold: '+g.lowStockAt+')',
-          reported_by:'KCC Technical System'
-        });
+        await emailjs.send(EJSID,EJTPL,kccNoticeParams(admin,'📦 Low stock: '+g.name,{tone:'amber',badge:'Low stock',headline:g.name+' is running low',rows:[['Current quantity',g.qty],['Alert threshold',g.lowStockAt]],body:'Please restock soon.'},{fixture_name:'📦 Low Stock: '+g.name,fixture_id:g.assetId||g.id}));
       }catch(e){console.warn('Low stock email failed',e);}
     }
   }

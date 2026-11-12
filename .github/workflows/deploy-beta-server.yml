@@ -4,7 +4,7 @@ name: Deploy beta server
 on:
   push:
     branches: [main]
-    paths: ['index.js', 'kcc-auth.js', 'kcc-auth-core.js', 'kcc-schema.js', 'firestore.rules', 'firebase.json', 'package.json']
+    paths: ['index.js', 'kcc-auth.js', 'kcc-auth-core.js', 'kcc-schema.js', 'kcc-email.js', 'firestore.rules', 'firebase.json', 'package.json']
   workflow_dispatch: {}
 jobs:
   deploy:

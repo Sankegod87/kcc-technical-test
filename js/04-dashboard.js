@@ -319,13 +319,14 @@ async function sendCallSheets(force,onlyUnconfirmed){
   // The server signs each person's confirm link so one tap works without signing in.
   let sigs={}; try{ if(window._kccLinks) sigs=(await window._kccLinks(key,e.crew)).sigs||{}; }catch(err){ console.warn('could not sign links',err); }
   const dateStr=sun.toLocaleDateString(undefined,{month:'long',day:'numeric'});
+  const wx=await KCC_EMAIL.weatherFor(key);
   for(const id of e.crew){
     const t=db.technicians.find(x=>x.id===id); if(!t) continue;
     if(!t.email){missing++;continue;}
     if(onlyUnconfirmed&&e.confirmed&&e.confirmed[id]){skipped++;continue;}
     if(e.callSheetSent[id]&&!force){skipped++;continue;}
     try{
-      await emailjs.send(EJSID,EJTPL,{to_email:t.email,to_name:t.name,subject:'Call sheet: '+dateStr,message:sdBuildCallSheet(key,t,sun,sigs[id]),fixture_name:'Call sheet for '+dateStr,fixture_id:key,bulb_type:dateStr,reported_by:'KCC Technical'});
+      await emailjs.send(EJSID,EJTPL,kccEmailParams(t,'Call sheet: '+dateStr,KCC_EMAIL.schedule(Object.assign(kccEmailCtx(key,t,sun,sigs[id],'callsheet'),{weather:wx,intro:'Here is your call sheet for '+sun.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})+'.'})),{fixture_name:'Call sheet for '+dateStr,fixture_id:key,bulb_type:dateStr}));
       e.callSheetSent[id]=Date.now(); sent++;
     }catch(err){console.warn('call sheet failed',t.name,err);}
   }
@@ -335,13 +336,16 @@ async function sendCallSheets(force,onlyUnconfirmed){
   return sent;
 }
 function sdAutoSend(){
+  // Automatic call sheets are sent by the server (autoCallSheets function), never by whoever opens the app,
+  // so opening the app cannot send them a second time. Admins can still press "Send call sheets" by hand.
+  return;
   if(window._sdAutoDone||!_techId||!isAdmin()||!db.settings||!db.settings.autoCallSheets) return;
   const sun=sdNextSunday(), {call}=sdTimes(sun), now=Date.now();
   if(now<call.getTime()-48*36e5||now>sun.getTime()+864e5) return;
   const e=db.schedules[schedKey(sun)]; if(!e||!(e.crew||[]).length) return;
   window._sdAutoDone=true; sendCallSheets(false);
 }
-function sdToggleAuto(on){ db.settings.autoCallSheets=!!on; save(); toast(on?'Call sheets will send 48 hours before call time (when an admin has the app open)':'Auto-send is off','info'); }
+function sdToggleAuto(on){ db.settings.autoCallSheets=!!on; save(); toast(on?'Call sheets will send automatically 48 hours before call time (sent by the server, even when nobody has the app open)':'Auto-send is off','info'); }
 
 // ══ Post-service notes ══
 window._psn={mood:'',wrong:'',fix:'',fixIds:[],makeReq:false,photo:''};
@@ -654,7 +658,7 @@ async function sendAlertDigest(force){
   let ok=0;
   for(const a of admins){
     try{
-      await emailjs.send(EJSID,EJTPL,{to_email:a.email,to_name:a.name,subject:'KCC Technical: '+items.length+' item'+(items.length>1?'s':'')+' need attention',message:'Hi '+a.name+',\n\nHere is what needs attention:\n\n'+body+'\n\nOpen the app to act on these.\n\nKCC Technical',fixture_name:'Alert digest',fixture_id:'DIGEST',bulb_type:items.length+' items',reported_by:'KCC Technical System'});
+      await emailjs.send(EJSID,EJTPL,kccEmailParams(a,'KCC Technical: '+items.length+' item'+(items.length>1?'s':'')+' need attention',KCC_EMAIL.digest({name:a.name,groups:Object.keys(groups).map(c=>({cat:c,items:groups[c]})),appUrl:kccAppUrl()}),{fixture_name:'Alert digest',fixture_id:'DIGEST',bulb_type:items.length+' items',reported_by:'KCC Technical System'}));
       ok++;
     }catch(e){console.warn('digest failed',a.name,e);}
   }

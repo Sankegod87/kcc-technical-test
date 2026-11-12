@@ -10,7 +10,7 @@
     "twilio": "^5.0.0"
   },
   "scripts": {
-    "test": "node tests/core.test.js && node tests/migrate.test.js && node tests/rules-sync.test.js",
+    "test": "node tests/core.test.js && node tests/migrate.test.js && node tests/rules-sync.test.js && node tests/schedule-autosend.test.js && node tests/server-callsheet.test.js",
     "test:e2e": "node tests/e2e.js",
     "test:rules": "firebase emulators:exec --only firestore \"node tests/rules.test.js\""
   },

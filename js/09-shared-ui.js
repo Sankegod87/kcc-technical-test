@@ -686,16 +686,7 @@ async function sendLowStockAlerts(bulbType,stock,threshold,techName){
   const time=new Date().toLocaleString('en-CA',{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
   for(const rec of recipients){
     try{
-      await emailjs.send(EJSID,EJTPL,{
-        to_email: rec.email,
-        to_name:  rec.name,
-        subject:  '⚠️ Low Stock Alert — '+bulbType,
-        message:  'Bulb type '+bulbType+' is running low and may need reordering.\n\n'+
-                  'Current stock:  '+stock+' remaining\n'+
-                  'Threshold:      '+threshold+'\n'+
-                  'Logged by:      '+techName+'\n'+
-                  'Time:           '+time
-      });
+      await emailjs.send(EJSID,EJTPL,kccNoticeParams(rec,'⚠️ Low Stock Alert — '+bulbType,{tone:'amber',badge:'Low stock',headline:'Bulb type '+bulbType+' is running low',rows:[['Current stock',stock+' remaining'],['Threshold',threshold],['Logged by',techName],['Time',time]],body:'It may need reordering.'}));
     }catch(e){console.warn('Email failed',e);}
   }
   toast('📧 Low stock alert sent to '+recipients.length+' crew member'+(recipients.length>1?'s':''),'info');
@@ -707,16 +698,7 @@ async function sendOutageAlerts(fixtureName,fixtureId,bulbType,techName){
   const time=new Date().toLocaleString('en-CA',{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
   for(const rec of recipients){
     try{
-      await emailjs.send(EJSID,EJTPL,{
-        to_email: rec.email,
-        to_name:  rec.name,
-        subject:  '🔴 Fixture Out — '+fixtureName+' ('+fixtureId+')',
-        message:  'A fixture has been reported out and needs attention.\n\n'+
-                  'Fixture:      '+fixtureName+' ('+fixtureId+')\n'+
-                  'Bulb Type:    '+bulbType+'\n'+
-                  'Reported by:  '+techName+'\n'+
-                  'Time:         '+time
-      });
+      await emailjs.send(EJSID,EJTPL,kccNoticeParams(rec,'🔴 Fixture Out — '+fixtureName+' ('+fixtureId+')',{tone:'red',badge:'Fixture out',headline:fixtureName+' has been reported out',rows:[['Fixture',fixtureName+' ('+fixtureId+')'],['Bulb type',bulbType],['Reported by',techName],['Time',time]],body:'It needs attention.'}));
     }catch(e){console.warn('Email failed',e);}
   }
   toast('📧 Outage alert sent to '+recipients.length+' crew member'+(recipients.length>1?'s':''),'info');
@@ -768,24 +750,26 @@ function manualSendScheduleSMS(){
 }
 
 function checkScheduleEmails(){
-  // Auto-send schedule emails every Thursday (day 4) for the upcoming Sunday
+  // Thursday auto-send of the schedule for the upcoming Sunday.
+  // Only a signed-in admin or master can trigger it, and it is recorded in the shared settings,
+  // so it goes out once per Sunday no matter how many devices or people open the app.
   const today=new Date();
   if(today.getDay()!==4) return; // not Thursday
-  const lastSent=localStorage.getItem('slt_last_sched_email');
-  const todayStr=today.toDateString();
-  if(lastSent===todayStr) return; // already sent today
-  localStorage.setItem('slt_last_sched_email',todayStr);
+  if(typeof _techId==='undefined'||!_techId||!isAdmin()||!db.settings) return;
 
   // Find the upcoming Sunday (3 days away)
   const sunday=new Date(today);
   sunday.setDate(sunday.getDate()+3);
   const key=schedKey(sunday);
+  if(db.settings.schedEmailSent===key) return; // already sent for this Sunday
   const entry=db.schedules[key];
 
   if(!entry||!entry.crew||!entry.crew.length){
     console.log('No schedule set for upcoming Sunday '+key+' — skipping auto-email');
     return;
   }
+
+  db.settings.schedEmailSent=key; save(); // mark first, so a second open cannot send it again
 
   // Send emails to assigned crew
   setTimeout(()=>{
