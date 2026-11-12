@@ -57,7 +57,11 @@ if (require.main === module) {
     const admin = require('firebase-admin');
     admin.initializeApp();
     const db = admin.firestore();
-    const snap = await db.doc('stage-light-tracker/main').get();
+    // --file kcc-backup-YYYY-MM-DD.json  reads the downloaded backup instead of the old Firestore document
+    const fi = process.argv.indexOf('--file');
+    let snap;
+    if (fi > 0) { const txt = require('fs').readFileSync(process.argv[fi + 1], 'utf8'); snap = { exists: true, data: () => ({ payload: txt }) }; }
+    else snap = await db.doc('stage-light-tracker/main').get();
     if (!snap.exists) { console.error('No old data document found at stage-light-tracker/main'); process.exit(1); }
     const existing = await db.doc('data/technicians').get();
     if (existing.exists && !process.argv.includes('--force')) { console.error('data/technicians already exists. Stop, or re-run with --force to overwrite.'); process.exit(1); }
