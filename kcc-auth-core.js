@@ -428,7 +428,7 @@ function makeCore(deps) {
         if (email) await Promise.resolve(deps.mail({ kind: 'requester', to: email, name, req })).catch(() => {});
       } catch (e) { /* ignore */ }
     }
-    return { ok: true, ref: req.ref };
+    return { ok: true, ref: req.ref, signedAt: req.agreement ? req.agreement.signedAt : null, hash: req.agreement ? req.agreement.hash : null };
   }
 
   return { login, bootstrap, confirmSelf, confirmLink, makeLinks, linkSig, techOp, setSecret, hasSecret, notesGet, noteAdd, noteDel, ytLive, submitExternalRequest, Fail, scryptHash, pwMatches, writeRoster, readData, writeData };

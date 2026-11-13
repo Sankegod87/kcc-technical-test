@@ -646,6 +646,7 @@ function erSigMode(m){
   document.getElementById('er-sig-typed').style.display=window._erSig.mode==='typed'?'':'none';
   document.getElementById('er-sig-drawn').style.display=window._erSig.mode==='drawn'?'':'none';
 }
+function erSaveCopy(){ if(window._erLast) kccAgreementOverlay(window._erLast); }
 function erSigPreview(){ const v=(document.getElementById('er-signname').value||'').trim(); document.getElementById('er-sig-preview').textContent=v||'Your signature'; }
 function erSigClear(silent){
   const cv=document.getElementById('er-sig-canvas'); if(cv){ const c=cv.getContext('2d'); c.clearRect(0,0,cv.width,cv.height); }
@@ -658,6 +659,7 @@ function resetExternalRequestForm(){
   document.getElementById('extReq-status').textContent='';
   const hint=document.getElementById('er-datehint');if(hint)hint.style.display='none';
   if(typeof erWho==='function')erWho('ministry');
+  window._erLast=null;{const sb=document.getElementById('er-save-copy');if(sb)sb.style.display='none';}
   ['er-agree','er-auth'].forEach(id=>{const el=document.getElementById(id);if(el)el.checked=false;});
   if(typeof erSigClear==='function'){erSigClear(true);erSigMode('typed');erSigPreview();}
   document.getElementById('extReq-form').style.display='';
@@ -709,7 +711,10 @@ async function submitExternalRequest(){
       neededBy:dateVal?new Date(dateVal+'T12:00:00').getTime():null,
       photos:_erMediaList.slice(0,3).filter(safeImg)});
     try{localStorage.setItem('kcc_ext_last',String(Date.now()));}catch(e){}
-    const ref=res&&res.data&&res.data.ref;
+    const out=(res&&res.data)||res||{};
+    const ref=out.ref;
+    window._erLast=agreement?{ref,requesterDept:dept,requesterName:name,requesterEmail:email,requesterContact:contact,eventType,neededBy:dateVal?new Date(dateVal+'T12:00:00').getTime():null,startTime,endTime,location,attendance,bookingRef,agreement:Object.assign({},agreement,{signedAt:out.signedAt||Date.now(),hash:out.hash||''})}:null;
+    const saveBtn=document.getElementById('er-save-copy');if(saveBtn)saveBtn.style.display=agreement?'':'none';
     const refEl=document.getElementById('er-success-ref');if(refEl)refEl.textContent=ref?'Reference: '+ref:'';
     const msgEl=document.getElementById('er-success-msg');if(msgEl)msgEl.textContent='The tech team has been notified and will follow up with you.'+(email?' We also sent a confirmation to '+email+'.':'');
     document.getElementById('extReq-form').style.display='none';
