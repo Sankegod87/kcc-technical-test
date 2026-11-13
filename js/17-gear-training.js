@@ -611,13 +611,64 @@ function _erMediaDrop(e){
   if(e.dataTransfer&&e.dataTransfer.files)_erMediaAdd(e.dataTransfer.files);
 }
 function _erMediaRemove(i){_erMediaList.splice(i,1);_erRenderMediaPreview();}
+window._erWho='ministry';
+function erWho(v){
+  window._erWho=v==='venue'?'venue':'ministry';
+  document.querySelectorAll('#er-who button').forEach(b=>b.classList.toggle('on',b.dataset.v===window._erWho));
+  const venue=window._erWho==='venue';
+  document.getElementById('er-dept-label').textContent=venue?'Group / organization *':'Ministry / department *';
+  document.getElementById('er-dept').placeholder=venue?'e.g. Riverside Community Choir':'e.g. Kids Ministry, Worship, Events';
+  document.getElementById('er-location-label').textContent=venue?'Venue / room booked':'Where?';
+  document.querySelectorAll('.venue-only').forEach(el=>el.style.display=venue?'':'none');
+  if(venue) erAgreementInit();
+}
+window._erSig={mode:'typed',dirty:false,init:false};
+function erAgreementInit(){
+  const A=window.KCC_AGREEMENT, box=document.getElementById('er-terms'); if(!A||!box) return;
+  if(!box.dataset.v){
+    box.innerHTML='<h3>'+esc(A.TITLE)+'</h3><p>'+esc(A.INTRO)+'</p>'+A.CLAUSES.map((c,i)=>'<h4>'+(i+1)+'. '+esc(c[0])+'</h4><p>'+esc(c[1])+'</p>').join('');
+    box.dataset.v=A.VERSION;
+  }
+  const d=document.getElementById('er-signdate'); if(d) d.textContent=new Date().toLocaleDateString('en-CA',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  const cv=document.getElementById('er-sig-canvas'); if(cv&&!window._erSig.init){
+    window._erSig.init=true; const ctx=cv.getContext('2d'); let down=false;
+    const pos=e=>{const r=cv.getBoundingClientRect();return {x:(e.clientX-r.left)*cv.width/r.width,y:(e.clientY-r.top)*cv.height/r.height};};
+    ctx.lineWidth=3.2;ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle='#10231B';
+    cv.addEventListener('pointerdown',e=>{down=true;cv.setPointerCapture(e.pointerId);const p=pos(e);ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x+.01,p.y+.01);ctx.stroke();window._erSig.dirty=true;e.preventDefault();});
+    cv.addEventListener('pointermove',e=>{if(!down)return;const p=pos(e);ctx.lineTo(p.x,p.y);ctx.stroke();e.preventDefault();});
+    ['pointerup','pointercancel','pointerleave'].forEach(t=>cv.addEventListener(t,()=>{down=false;}));
+  }
+  erSigClear(true);
+}
+function erSigMode(m){
+  window._erSig.mode=m==='drawn'?'drawn':'typed';
+  document.querySelectorAll('.er2-sigtabs button').forEach(b=>b.classList.toggle('on',b.dataset.m===window._erSig.mode));
+  document.getElementById('er-sig-typed').style.display=window._erSig.mode==='typed'?'':'none';
+  document.getElementById('er-sig-drawn').style.display=window._erSig.mode==='drawn'?'':'none';
+}
+function erSigPreview(){ const v=(document.getElementById('er-signname').value||'').trim(); document.getElementById('er-sig-preview').textContent=v||'Your signature'; }
+function erSigClear(silent){
+  const cv=document.getElementById('er-sig-canvas'); if(cv){ const c=cv.getContext('2d'); c.clearRect(0,0,cv.width,cv.height); }
+  window._erSig.dirty=false; if(!silent) toast('Cleared','info');
+}
 function resetExternalRequestForm(){
-  ['er-name','er-dept','er-contact','er-eventdate','er-details'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  ['er-name','er-dept','er-contact','er-email','er-eventdate','er-start','er-end','er-location','er-type','er-details','er-attendance','er-bookingref'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.querySelectorAll('#er-cat-group input[type=checkbox]').forEach(cb=>cb.checked=false);
   _erMediaList=[];_erRenderMediaPreview();
   document.getElementById('extReq-status').textContent='';
+  const hint=document.getElementById('er-datehint');if(hint)hint.style.display='none';
+  if(typeof erWho==='function')erWho('ministry');
+  ['er-agree','er-auth'].forEach(id=>{const el=document.getElementById(id);if(el)el.checked=false;});
+  if(typeof erSigClear==='function'){erSigClear(true);erSigMode('typed');erSigPreview();}
   document.getElementById('extReq-form').style.display='';
   document.getElementById('extReq-success').style.display='none';
+}
+function erDateHint(){
+  const el=document.getElementById('er-datehint'),v=document.getElementById('er-eventdate').value;if(!el)return;
+  if(!v){el.style.display='none';return;}
+  const days=Math.round((new Date(v+'T12:00:00').getTime()-Date.now())/864e5);
+  el.style.display='block';
+  el.textContent=days<0?'That date has already passed.':days<7?'This is within a week, so we will mark it urgent. For the fastest help, also message the tech team directly.':'Thanks! The earlier you tell us, the easier it is to get a crew.';
 }
 async function submitExternalRequest(){
   const name=(document.getElementById('er-name').value||'').trim();
@@ -627,21 +678,43 @@ async function submitExternalRequest(){
   const cats=Array.from(document.querySelectorAll('#er-cat-group input[type=checkbox]:checked')).map(cb=>cb.value);
   const statusEl=document.getElementById('extReq-status');
   const fail=m=>{statusEl.textContent=m;statusEl.style.color='var(--red)';};
-  if(!name||!dept){fail('Name and ministry/department are required.');return;}
+  const email=(document.getElementById('er-email').value||'').trim();
+  const location=(document.getElementById('er-location').value||'').trim();
+  const eventType=document.getElementById('er-type').value||'';
+  const startTime=document.getElementById('er-start').value||'', endTime=document.getElementById('er-end').value||'';
+  if(!name||!dept){fail(window._erWho==='venue'?'Your name and group are required.':'Name and ministry/department are required.');return;}
+  if(!email&&!contact){fail('Please add an email or phone number so we can follow up.');return;}
+  if(email&&!/^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/.test(email)){fail('That email address does not look right.');return;}
   if(!details){fail('Please describe what you need.');return;}
-  if(name.length>80||dept.length>80||details.length>2000||contact.length>120){fail('One of the answers is too long. Please shorten it.');return;}
+  let agreement=null;
+  if(window._erWho==='venue'){
+    const signerName=(document.getElementById('er-signname').value||'').trim();
+    if(!email){fail('Please add an email address. We send you a copy of the signed agreement.');return;}
+    if(!document.getElementById('er-agree').checked||!document.getElementById('er-auth').checked){fail('Please read the agreement and tick both boxes to sign it.');return;}
+    if(signerName.length<2){fail('Please type your full name to sign.');return;}
+    if(window._erSig.mode==='drawn'&&!window._erSig.dirty){fail('Please draw your signature, or choose to sign with your typed name.');return;}
+    agreement={version:(window.KCC_AGREEMENT||{}).VERSION,accepted:true,authorised:true,signerName,method:window._erSig.mode,signature:window._erSig.mode==='drawn'?document.getElementById('er-sig-canvas').toDataURL('image/png'):'',ua:(navigator.userAgent||'').slice(0,200)};
+  }
+  if(name.length>80||dept.length>80||details.length>2000||contact.length>120||email.length>120||location.length>120){fail('One of the answers is too long. Please shorten it.');return;}
   if(!window._kccSubmitRequest){fail('Cannot reach the server. Please try again in a moment.');return;}
   // The server checks length, images and rate limits again; this device only blocks quick repeats.
   try{ const last=+localStorage.getItem('kcc_ext_last')||0; if(Date.now()-last<60000){fail('Please wait a minute before sending another request.');return;} }catch(e){}
   const dateVal=document.getElementById('er-eventdate').value;
-  statusEl.textContent='Submitting…';statusEl.style.color='';
+  statusEl.textContent='Sending…';statusEl.style.color='';
   try{
-    await window._kccSubmitRequest({name,dept,contact,details,cats,
+    const requesterType=window._erWho==='venue'?'venue':'ministry';
+    const attendance=requesterType==='venue'?(parseInt(document.getElementById('er-attendance').value,10)||null):null;
+    const bookingRef=requesterType==='venue'?(document.getElementById('er-bookingref').value||'').trim():'';
+    const res=await window._kccSubmitRequest({name,dept,contact,email,details,cats,eventType,startTime,endTime,location,requesterType,attendance,bookingRef,agreement,
       neededBy:dateVal?new Date(dateVal+'T12:00:00').getTime():null,
       photos:_erMediaList.slice(0,3).filter(safeImg)});
     try{localStorage.setItem('kcc_ext_last',String(Date.now()));}catch(e){}
+    const ref=res&&res.data&&res.data.ref;
+    const refEl=document.getElementById('er-success-ref');if(refEl)refEl.textContent=ref?'Reference: '+ref:'';
+    const msgEl=document.getElementById('er-success-msg');if(msgEl)msgEl.textContent='The tech team has been notified and will follow up with you.'+(email?' We also sent a confirmation to '+email+'.':'');
     document.getElementById('extReq-form').style.display='none';
     document.getElementById('extReq-success').style.display='block';
+    statusEl.textContent='';
   }catch(e){ fail(srvErr(e)); }
 }
 function copyExternalRequestLink(){

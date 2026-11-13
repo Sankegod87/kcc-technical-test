@@ -13,6 +13,7 @@
 //   rl/<key>           rate-limit counters                       private
 const crypto = require('crypto');
 const SCHEMA = require('./kcc-schema.js');
+const AGREEMENT = require('./kcc-agreement.js');
 
 class Fail extends Error { constructor(code, msg, details) { super(msg); this.code = code; this.details = details; } }
 
@@ -45,6 +46,9 @@ function pwMatches(pw, stored) {
 
 // ── small validators ──
 const str = (v, max) => { if (v == null) return ''; if (typeof v !== 'string') throw new Fail('invalid-argument', 'Text expected'); if (v.length > max) throw new Fail('invalid-argument', 'Text too long'); return v.trim(); };
+const EVENT_TYPES = ['Sunday service', 'Rehearsal', 'Special event', 'Meeting', 'Other'];
+const hhmm = v => { v = (typeof v === 'string' ? v : '').slice(0, 5); return /^([01]\d|2[0-3]):[0-5]\d$/.test(v) ? v : ''; };
+const emailOk = v => /^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/.test(v);
 const isImg = u => typeof u === 'string' && (/^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+\/=]+$/.test(u) || /^https:\/\/[^\s"'<>]+$/.test(u));
 
 // Fields a person may set on a crew profile, with a size limit each.
@@ -356,6 +360,30 @@ function makeCore(deps) {
   async function submitExternalRequest(data, ctx, ip) {
     const d = data || {};
     const name = str(d.name, 80), dept = str(d.dept, 80), details = str(d.details, 2000), contact = str(d.contact, 120);
+    const email = str(d.email, 120).trim(), location = str(d.location, 120).trim();
+    if (email && !emailOk(email)) throw new Fail('invalid-argument', 'That email address does not look right.');
+    const eventType = EVENT_TYPES.indexOf(d.eventType) >= 0 ? d.eventType : '';
+    const requesterType = d.requesterType === 'venue' ? 'venue' : 'ministry';
+    const bookingRef = str(d.bookingRef, 60).trim();
+    // Outside groups booking a venue must sign the current agreement. The server records which version (and a hash of the exact text) was signed.
+    let signed = null;
+    if (requesterType === 'venue') {
+      if (!d.agreement || typeof d.agreement !== 'object') throw new Fail('invalid-argument', 'Please read the agreement and sign it.');
+      const a = d.agreement;
+      if (a.version !== AGREEMENT.VERSION) throw new Fail('failed-precondition', 'The agreement was updated. Please reload this page and read it again.');
+      if (a.accepted !== true || a.authorised !== true) throw new Fail('invalid-argument', 'Please tick both boxes to accept the agreement.');
+      const signerName = str(a.signerName, 80).trim();
+      if (signerName.length < 2) throw new Fail('invalid-argument', 'Please type your full name to sign.');
+      const method = a.method === 'drawn' ? 'drawn' : 'typed';
+      let signature = '';
+      if (method === 'drawn') {
+        signature = str(a.signature, 90000);
+        if (!/^data:image\/png;base64,[A-Za-z0-9+\/=]+$/.test(signature) || signature.length < 1500) throw new Fail('invalid-argument', 'Please draw your signature, or choose to type your name.');
+      }
+      signed = { version: AGREEMENT.VERSION, hash: crypto.createHash('sha256').update(AGREEMENT.text()).digest('hex'), signerName, method, signature, ua: str(a.ua, 200) };
+    }
+    let attendance = null; if (d.attendance != null) { attendance = Math.round(Number(d.attendance)); if (!isFinite(attendance) || attendance < 0 || attendance > 5000) attendance = null; }
+    const startTime = hhmm(d.startTime), endTime = hhmm(d.endTime);
     if (!name || !dept) throw new Fail('invalid-argument', 'Name and ministry/department are required.');
     if (!details) throw new Fail('invalid-argument', 'Please describe what you need.');
     const cats = (Array.isArray(d.cats) ? d.cats : []).slice(0, 12).map(x => str(x, 40)).filter(Boolean);
@@ -378,9 +406,11 @@ function makeCore(deps) {
     const t = now();
     const req = {
       id: 'req_' + t + rand().slice(0, 3), title: dept + ' — ' + (cats.length ? cats.join(', ') : 'Other'), category: cats.length ? cats.join(', ') : 'Other',
-      priority: 'normal', neededBy: needBy, requestedBy: '', details, status: 'open', assignedTo: '', adminNotes: '', createdAt: t,
-      source: 'external', requesterName: name, requesterDept: dept, requesterContact: contact, photos
+      priority: (needBy && needBy - t < 7 * 864e5) ? 'urgent' : 'normal', neededBy: needBy, requestedBy: '', details, status: 'open', assignedTo: '', adminNotes: '', createdAt: t,
+      source: 'external', requesterName: name, requesterDept: dept, requesterContact: contact, photos,
+      requesterEmail: email, eventType, startTime, endTime, location, requesterType, attendance, bookingRef, ref: ('R' + String(t).slice(-6)), history: [{ t, what: 'Submitted' }]
     };
+    if (signed) { signed.signedAt = t; signed.ipHash = ipKey.slice(3); req.agreement = signed; req.history.push({ t, what: 'Agreement signed', by: signed.signerName }); }
     await fs.runTransaction(async tx => {
       const list = await readData(tx, 'techRequests', []);
       if (list.filter(r => r.source === 'external' && r.status === 'open').length >= 150) throw new Fail('resource-exhausted', 'The request queue is full. Please contact the tech team directly.');
@@ -388,7 +418,17 @@ function makeCore(deps) {
       if (JSON.stringify(list).length > 800000) throw new Fail('resource-exhausted', 'The request queue is full. Please contact the tech team directly.');
       writeData(tx, 'techRequests', list);
     });
-    return { ok: true };
+    // Tell the admins and (if they gave an email) confirm to the requester. Best effort: a failed email never fails the request.
+    if (deps.mail) {
+      try {
+        const snap = await fs.doc('data/technicians').get();
+        const techs = snap && snap.exists ? JSON.parse(snap.data().p || '[]') : [];
+        const admins = techs.filter(x => x.active !== false && x.email && emailOk(x.email) && (x.userRole === 'admin' || x.userRole === 'master'));
+        await Promise.all(admins.map(a => Promise.resolve(deps.mail({ kind: 'admin', to: a.email, name: a.name, req })).catch(() => {})));
+        if (email) await Promise.resolve(deps.mail({ kind: 'requester', to: email, name, req })).catch(() => {});
+      } catch (e) { /* ignore */ }
+    }
+    return { ok: true, ref: req.ref };
   }
 
   return { login, bootstrap, confirmSelf, confirmLink, makeLinks, linkSig, techOp, setSecret, hasSecret, notesGet, noteAdd, noteDel, ytLive, submitExternalRequest, Fail, scryptHash, pwMatches, writeRoster, readData, writeData };

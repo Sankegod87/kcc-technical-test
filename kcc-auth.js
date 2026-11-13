@@ -5,7 +5,23 @@ const { makeCore, Fail } = require("./kcc-auth-core.js");
 
 const fsAdmin = admin.firestore();
 const stampNow = () => admin.firestore.FieldValue.serverTimestamp();
+const kccEmail = require("./kcc-email.js");
+
+// Emails about tech requests (admin alert + confirmation to the requester). Needs the EmailJS keys set on the server.
+async function sendRequestMail({ kind, to, name, req }) {
+  const pub = process.env.EMAILJS_PUBLIC_KEY, priv = process.env.EMAILJS_PRIVATE_KEY;
+  if (!pub || !priv) return;
+  const html = kind === "admin" ? kccEmail.requestNew({ name, req, appUrl: process.env.APP_URL || "" }) : kccEmail.requestReceipt({ name, req });
+  const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ service_id: "service_pjzebxk", template_id: "template_ebt36uu", user_id: pub, accessToken: priv,
+      template_params: { to_email: to, to_name: name, subject: kccEmail.requestSubject(kind, req), message: "", html, fixture_name: "Tech request", fixture_id: req.id, bulb_type: req.category || "", reported_by: "KCC Technical" } }),
+  });
+  if (!res.ok) throw new Error("EmailJS " + res.status);
+}
+
 const core = makeCore({
+  mail: sendRequestMail,
   fs: {
     doc: (p) => fsAdmin.doc(p),
     runTransaction: (fn) => fsAdmin.runTransaction(fn),

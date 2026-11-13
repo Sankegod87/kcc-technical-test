@@ -178,8 +178,33 @@ const { FAKE } = require('./fake-modules.js');
 
   // ── 6. public request form (not signed in)
   const pub = await device({ hash: '#request', ip: 9 });
-  assert.ok(await vis(pub, '#extRequestScreen')); await pub.fill('#er-name', 'Visitor'); await pub.fill('#er-dept', 'Youth'); await pub.fill('#er-details', 'Need a projector'); await pub.evaluate(() => submitExternalRequest()); await sleep(900);
+  assert.ok(await vis(pub, '#extRequestScreen')); await pub.fill('#er-name', 'Visitor'); await pub.fill('#er-dept', 'Youth'); await pub.fill('#er-email', 'visitor@example.org'); await pub.fill('#er-details', 'Need a projector'); await pub.evaluate(() => submitExternalRequest()); await sleep(900);
   assert.ok(docs('techRequests').some(r => r.requesterName === 'Visitor' && r.source === 'external')); assert.ok(await vis(pub, '#extReq-success')); ok('visitor submits a request without signing in');
+  // ── tech request inbox (admin)
+  await notify(); await sleep(800);
+  await pa.evaluate(() => { window.__mail2 = []; emailjs.send = async (a, b, params) => { window.__mail2.push(params); return {}; }; go('requests'); }); await sleep(700);
+  const inbox = await pa.evaluate(() => document.getElementById('req-list').innerText); assert.match(inbox, /Youth/); assert.ok(await pa.$('#req-filters .rq-filter')); ok('admin inbox lists the visitor request with filter chips');
+  const rid = docs('techRequests').find(r => r.requesterName === 'Visitor').id;
+  await pa.evaluate(id => reqAct(id, 'approve'), rid); await sleep(1000);
+  const rq = docs('techRequests').find(r => r.id === rid); assert.strictEqual(rq.status, 'approved'); assert.strictEqual(rq.history[rq.history.length - 1].what, 'approved');
+  const m2 = await pa.evaluate(() => window.__mail2); assert.ok(m2.some(m => m.to_email === 'visitor@example.org' && /approved/.test(m.subject) && /Approved/.test(m.html))); ok('one-tap approve updates the request and emails the requester');
+  await pa.evaluate(() => { db.techRequests.unshift({ id: 'rq_t', title: 'Kids: concert', category: 'Lighting', status: 'approved', priority: 'urgent', neededBy: Date.now() + 2 * 86400000, startTime: '18:00', endTime: '20:30', location: 'Gym', eventType: 'Special event', requesterName: 'Sam', requesterDept: 'Kids', source: 'external', createdAt: Date.now(), details: 'x' }); renderRequests(); });
+  assert.match(await pa.evaluate(() => document.getElementById('req-list').innerText), /URGENT/); assert.match(await pa.evaluate(() => document.getElementById('req-list').innerText), /In 2 days/);
+  await pa.evaluate(() => reqToSchedule('rq_t')); await sleep(900);
+  const evs = docs('specialEvents'); assert.ok(evs.some(e => /Kids/.test(e.title) && e.time === '6:00 PM' && e.endTime === '8:30 PM' && e.location === 'Gym')); ok('urgent flag and due badge show; add to schedule creates the special event');
+  await pa.evaluate(() => reqSearch('visitor')); assert.ok(!/Kids: concert/.test(await pa.evaluate(() => document.getElementById('req-list').innerText))); await pa.evaluate(() => reqSearch('')); ok('search filters the inbox');
+  await pub.evaluate(() => { localStorage.removeItem('kcc_ext_last'); resetExternalRequestForm(); erWho('venue'); });
+  assert.ok(await pub.isVisible('#er-attendance')); assert.ok(!(await pub.$('#er-cat-group input[value="Livestream"]'))); ok('venue mode shows attendance and booking fields; there is no livestream option');
+  await pub.fill('#er-name', 'Renter'); await pub.fill('#er-dept', 'Riverside Choir'); await pub.fill('#er-email', 'renter@example.org'); await pub.fill('#er-attendance', '120'); await pub.fill('#er-bookingref', 'BK-9'); await pub.fill('#er-details', 'Need two mics');
+  assert.ok(await pub.isVisible('#er-terms')); assert.match(await pub.textContent('#er-terms'), /Damage, loss and replacement fees/); await pub.evaluate(() => submitExternalRequest()); await sleep(500);
+  assert.match(await pub.textContent('#extReq-status'), /tick both boxes/); assert.ok(!docs('techRequests').some(r => r.requesterName === 'Renter')); ok('cannot send a venue request without signing the agreement');
+  await pub.check('#er-agree'); await pub.check('#er-auth'); await pub.fill('#er-signname', 'Renter Person'); await pub.evaluate(() => { erSigMode('drawn'); }); await pub.evaluate(() => submitExternalRequest()); await sleep(400);
+  assert.match(await pub.textContent('#extReq-status'), /draw your signature/); await pub.evaluate(() => erSigMode('typed')); await pub.evaluate(() => submitExternalRequest()); await sleep(900);
+  assert.ok(docs('techRequests').some(r => r.requesterName === 'Renter' && r.requesterType === 'venue' && r.attendance === 120 && r.bookingRef === 'BK-9' && r.agreement && r.agreement.signerName === 'Renter Person' && r.agreement.method === 'typed')); ok('an outside group can book-request through the same form');
+  await notify(); await sleep(700); await pa.evaluate(() => { go('requests'); reqFilter('venue'); }); await sleep(500);
+  const venueTxt = await pa.evaluate(() => document.getElementById('req-list').innerText); assert.match(venueTxt, /Signed/); assert.match(venueTxt, /Venue booking/);
+  const rrid = docs('techRequests').find(r => r.requesterName === 'Renter').id; await pa.evaluate(id => reqAgreement(id), rrid);
+  const agrTxt = await pa.evaluate(() => document.getElementById('rq-agr').innerText); assert.match(agrTxt, /Renter Person/); assert.match(agrTxt, /Damage, loss and replacement fees/); assert.match(agrTxt, /Agreement version/); await pa.evaluate(() => document.getElementById('rq-agr').remove()); await pa.evaluate(() => reqFilter('active')); ok('admin sees the signed agreement with signer, time and full text, ready to print');
   const publicRead = await pub.evaluate(async () => { try { await window._fetchKey('fixtures'); return 'read'; } catch (e) { return e.code; } }); assert.match(publicRead, /permission-denied/); ok('visitor cannot read any app data');
   await sleep(600); assert.ok(await pa.evaluate(() => db.techRequests.some(r => r.requesterName === 'Visitor'))); ok('admin sees the request live');
 

@@ -110,6 +110,59 @@
     return Promise.race([get, timer]);
   }
 
-  var api = { schedule: schedule, digest: digest, notice: notice, weatherFor: weatherFor, esc: esc };
+
+  // ── Tech requests (the public form + the admin inbox) ──
+  function fmtDay(ms) { try { return new Date(ms).toLocaleDateString('en-US', { timeZone: 'America/Edmonton', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }); } catch (e) { return ''; } }
+  function reqRows(r, withRef) {
+    var rows = [];
+    if (withRef && r.ref) rows.push(['Reference', r.ref]);
+    if (r.requesterType === 'venue') rows.push(['Booking type', 'Venue booking']);
+    rows.push([r.requesterType === 'venue' ? 'Group' : 'Ministry', r.requesterDept || '']);
+    if (r.requesterName) rows.push(['Requested by', r.requesterName]);
+    if (r.agreement) rows.push(['Agreement', 'Signed by ' + r.agreement.signerName + (r.agreement.method === 'drawn' ? ' (hand-drawn signature)' : ' (typed name)') + ' \u00B7 v' + r.agreement.version]);
+    var ct = [r.requesterEmail, r.requesterContact].filter(Boolean).join(' · '); if (ct) rows.push(['Contact', ct]);
+    if (r.eventType) rows.push(['Event type', r.eventType]);
+    if (r.neededBy) rows.push(['Date', fmtDay(r.neededBy)]);
+    var t12 = function (v) { var m = /^(\d{1,2}):(\d{2})$/.exec(v || ''); if (!m) return v || ''; var h = +m[1]; return (h % 12 || 12) + ':' + m[2] + ' ' + (h >= 12 ? 'PM' : 'AM'); };
+    var tm = t12(r.startTime) + (r.endTime ? ' – ' + t12(r.endTime) : ''); if (tm.trim()) rows.push(['Time', tm.trim()]);
+    if (r.location) rows.push([r.requesterType === 'venue' ? 'Venue' : 'Where', r.location]);
+    if (r.attendance) rows.push(['Expected attendance', String(r.attendance)]);
+    if (r.bookingRef) rows.push(['Booking reference', r.bookingRef]);
+    if (r.category) rows.push(['Needs', r.category]);
+    return rows.filter(function (x) { return x[1]; });
+  }
+  function requestSubject(kind, r, status) {
+    if (kind === 'admin') return (r.priority === 'urgent' ? 'URGENT tech request: ' : r.requesterType === 'venue' ? 'New venue tech request: ' : 'New tech request: ') + (r.requesterDept || '');
+    if (kind === 'requester') return 'We received your tech request';
+    return 'Your tech request was ' + ({ approved: 'approved', declined: 'declined', done: 'completed', progress: 'scheduled' }[status] || 'updated');
+  }
+  function requestNew(o) {
+    var r = o.req, urgent = r.priority === 'urgent';
+    return notice({ name: o.name, tone: urgent ? 'red' : 'amber', badge: urgent ? 'Urgent tech request' : r.requesterType === 'venue' ? 'Venue booking \u00B7 tech request' : 'New tech request', headline: (r.requesterDept || (r.requesterType === 'venue' ? 'A group' : 'A ministry')) + ' needs tech support',
+      rows: reqRows(r, true), body: (r.details || '').slice(0, 800), appUrl: o.appUrl });
+  }
+
+  // The full signed agreement, for the copy emailed to the person who signed it.
+  function agreementCopy(r) {
+    var A = root.KCC_AGREEMENT || (typeof require === 'function' ? require('./kcc-agreement.js') : null), g = r && r.agreement; if (!A || !g) return '';
+    var when = ''; try { when = new Date(g.signedAt).toLocaleString('en-CA', { timeZone: 'America/Edmonton', dateStyle: 'full', timeStyle: 'short' }); } catch (e) {}
+    var sig = g.method === 'drawn' ? '<span style="color:#10231B;font-size:15px;">(hand-drawn signature on file)</span>' : '<span style="font-family:\'Snell Roundhand\',\'Segoe Script\',\'Brush Script MT\',cursive;font-size:30px;color:#10231B;">' + esc(g.signerName) + '</span>';
+    return block('<div style="border-top:1px solid ' + C.line + ';padding-top:18px;"><div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:' + C.acc + ';font-weight:700;margin-bottom:8px;">Your signed agreement</div>' +
+      '<div style="background:#ffffff;border-radius:12px;padding:14px 18px;margin-bottom:12px;">' + sig + '<div style="font-size:12px;color:#4A5B54;margin-top:6px;">Signed electronically by ' + esc(g.signerName) + '<br>' + esc(when) + '<br>Version ' + esc(g.version) + '</div></div>' +
+      '<div style="font-size:15px;color:' + C.text + ';font-weight:800;">' + esc(A.TITLE) + '</div>' +
+      '<div style="font-size:13px;color:' + C.dim + ';line-height:1.6;margin-top:6px;">' + esc(A.INTRO) + '</div>' +
+      A.CLAUSES.map(function (c, i) { return '<div style="font-size:13px;color:' + C.acc + ';font-weight:700;margin-top:12px;">' + (i + 1) + '. ' + esc(c[0]) + '</div><div style="font-size:13px;color:' + C.dim + ';line-height:1.6;">' + esc(c[1]) + '</div>'; }).join('') + '</div>', 20);
+  }
+  function requestReceipt(o) {
+    var r = o.req;
+    return notice({ name: o.name, tone: 'green', badge: 'Request received', headline: 'We got your request', rows: reqRows(r, true),
+      body: 'The tech team will review it and get back to you. Keep this email for your reference.' + (r.agreement ? ' Your signed agreement is below.' : '') }) + agreementCopy(r);
+  }
+  function requestStatus(o) {
+    var r = o.req, st = o.status, T = { approved: ['green', 'Approved', 'Your request has been approved.'], declined: ['red', 'Declined', 'We are not able to help with this request.'], done: ['green', 'Completed', 'This request is complete.'], progress: ['blue', 'Scheduled', 'Your request is on the schedule.'] }[st] || ['blue', 'Update', 'There is an update on your request.'];
+    return notice({ name: o.name, tone: T[0], badge: T[1], headline: T[2], rows: reqRows(r, true), body: o.note || '', appUrl: '' });
+  }
+
+  var api = { requestNew: requestNew, requestReceipt: requestReceipt, requestStatus: requestStatus, requestSubject: requestSubject, schedule: schedule, digest: digest, notice: notice, weatherFor: weatherFor, esc: esc };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KCC_EMAIL = api;
 })(typeof window !== 'undefined' ? window : this);
