@@ -26,9 +26,9 @@ service cloud.firestore {
     }
 
     match /data/{key} {
-      allow read: if signedIn() && key in ['fixtures', 'outages', 'inventory', 'orders', 'usageLog', 'usedBulbs', 'bulbRegistry', 'availability', 'checklistState', 'shows', 'gearItems', 'checkouts', 'maintLogs', 'signoffs', 'feedbackItems', 'incidentReports', 'swapRequests', 'auditLog', 'serviceNotes', 'techRequests', 'settingsRt', 'schedules', 'announcements', 'trainingModules', 'rehearsals', 'vendors', 'specialEvents', 'settings', 'technicians'];
+      allow read: if signedIn() && key in ['fixtures', 'outages', 'inventory', 'orders', 'usageLog', 'usedBulbs', 'bulbRegistry', 'availability', 'checklistState', 'shows', 'gearItems', 'checkouts', 'maintLogs', 'signoffs', 'feedbackItems', 'incidentReports', 'swapRequests', 'auditLog', 'serviceNotes', 'techRequests', 'annState', 'settingsRt', 'schedules', 'announcements', 'trainingModules', 'rehearsals', 'vendors', 'specialEvents', 'settings', 'technicians'];
       allow create, update: if shapeOk() && (
-           (key in ['fixtures', 'outages', 'inventory', 'orders', 'usageLog', 'usedBulbs', 'bulbRegistry', 'availability', 'checklistState', 'shows', 'gearItems', 'checkouts', 'maintLogs', 'signoffs', 'feedbackItems', 'incidentReports', 'swapRequests', 'auditLog', 'serviceNotes', 'techRequests', 'settingsRt'] && signedIn())
+           (key in ['fixtures', 'outages', 'inventory', 'orders', 'usageLog', 'usedBulbs', 'bulbRegistry', 'availability', 'checklistState', 'shows', 'gearItems', 'checkouts', 'maintLogs', 'signoffs', 'feedbackItems', 'incidentReports', 'swapRequests', 'auditLog', 'serviceNotes', 'techRequests', 'annState', 'settingsRt'] && signedIn())
         || (key in ['schedules'] && canSched())
         || (key in ['announcements', 'trainingModules', 'rehearsals', 'vendors', 'specialEvents', 'settings'] && isAdmin()));
       allow delete: if false;

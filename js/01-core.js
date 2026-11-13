@@ -59,6 +59,7 @@ window._onRemoteData=function(r){
   db.auditLog=r.auditLog||db.auditLog||[];
   db.vendors=r.vendors||db.vendors||[];
   db.serviceNotes=r.serviceNotes||db.serviceNotes||[];
+  db.annState=r.annState||db.annState||{};
   // Schedule templates
   if(r.settings&&r.settings.scheduleTemplates) db.settings.scheduleTemplates=r.settings.scheduleTemplates;
   lsave();

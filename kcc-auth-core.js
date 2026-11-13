@@ -326,6 +326,58 @@ function makeCore(deps) {
     });
   }
 
+  // ── Crew feedback. Lives in private/feedback; only admins can read it, and only through these functions. ──
+  // Anonymous items store no name, no user id and only the DATE (not the time), and the list is shown in random order within
+  // each day, so neither the content nor the timing or order can be traced back to the person who sent it.
+  const FB_CATS = ['General', 'Equipment', 'Scheduling', 'Training', 'Communication', 'Safety', 'Other'];
+  const dayOf = t => new Date(t).toISOString().slice(0, 10);
+  async function feedbackSend(data, ctx) {
+    const c = callerOf(ctx);
+    const message = str(data && data.message, 2000).trim(), anon = !(data && data.anon === false);
+    const category = FB_CATS.indexOf(data && data.category) >= 0 ? data.category : 'General';
+    if (!message) throw new Fail('invalid-argument', 'Write your feedback first');
+    return fs.runTransaction(async tx => {
+      const techs = await readData(tx, 'technicians', []), me = techs.find(t => t.id === c.id);
+      const t = now(), day = dayOf(t);
+      // Daily limit per person. It only counts, it is not linked to any feedback item.
+      const lref = fs.doc('rl/fb_' + crypto.createHash('sha256').update('fb|' + c.id).digest('hex').slice(0, 24)), ls = await tx.get(lref);
+      const l = ls.exists && ls.data().day === day ? ls.data() : { day, n: 0 };
+      if (l.n >= 5) throw new Fail('resource-exhausted', 'That is enough for today. Please try again tomorrow.');
+      l.n++;
+      const ref = fs.doc('private/feedback'), s = await tx.get(ref), items = s.exists ? (s.data().items || []) : [];
+      const item = { id: 'fb_' + rand(), category, message, anon, author: anon ? '' : (me ? me.name : 'Unknown'), day, read: false };
+      tx.set(lref, l); tx.set(ref, { items: [item].concat(items).slice(0, 500) });
+      return { ok: true };
+    });
+  }
+  async function feedbackList(data, ctx) {
+    const c = callerOf(ctx); needAdmin(c);
+    const s = await fs.doc('private/feedback').get(), items = s.exists ? (s.data().items || []) : [];
+    // newest day first; inside a day the order follows the random id, not the order they were sent
+    items.sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : (a.id < b.id ? -1 : 1)));
+    return { items, unread: items.filter(i => !i.read).length };
+  }
+  async function feedbackAct(data, ctx) {
+    const c = callerOf(ctx); needAdmin(c);
+    const op = data && data.op;
+    return fs.runTransaction(async tx => {
+      const ref = fs.doc('private/feedback'), s = await tx.get(ref); let items = s.exists ? (s.data().items || []) : [];
+      if (op === 'read') items.forEach(i => { i.read = true; });
+      else if (op === 'delete') { const id = String(data.id || ''); items = items.filter(i => i.id !== id); }
+      else if (op === 'clear') items = [];
+      else if (op === 'import') {
+        // one-off: move feedback that used to sit in the shared app data into the private store
+        const old = Array.isArray(data.items) ? data.items.slice(0, 300) : [];
+        old.forEach(o => {
+          const anon = !o.author || o.author === 'Anonymous', t = Number(o.createdAt) || now();
+          items.push({ id: 'fb_' + rand(), category: FB_CATS.indexOf(o.category) >= 0 ? o.category : 'Other', message: str(String(o.message || '').replace(/<[^>]*>/g, ''), 2000), anon, author: anon ? '' : str(o.author, 80), day: dayOf(t), read: !!o.read });
+        });
+        items = items.slice(0, 500);
+      } else throw new Fail('invalid-argument', 'Unknown action');
+      tx.set(ref, { items }); return { ok: true, unread: items.filter(i => !i.read).length };
+    });
+  }
+
   // ── YouTube status (key stays on the server) ──
   let ytCache = { at: 0, v: null };
   async function ytLive(data, ctx) {
@@ -431,7 +483,7 @@ function makeCore(deps) {
     return { ok: true, ref: req.ref, signedAt: req.agreement ? req.agreement.signedAt : null, hash: req.agreement ? req.agreement.hash : null };
   }
 
-  return { login, bootstrap, confirmSelf, confirmLink, makeLinks, linkSig, techOp, setSecret, hasSecret, notesGet, noteAdd, noteDel, ytLive, submitExternalRequest, Fail, scryptHash, pwMatches, writeRoster, readData, writeData };
+  return { login, bootstrap, confirmSelf, confirmLink, makeLinks, linkSig, techOp, setSecret, hasSecret, notesGet, noteAdd, noteDel, feedbackSend, feedbackList, feedbackAct, ytLive, submitExternalRequest, Fail, scryptHash, pwMatches, writeRoster, readData, writeData };
 }
 
 module.exports = { makeCore, Fail, scryptHash, pwMatches, legacyHash, MIN_PW };

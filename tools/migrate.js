@@ -38,7 +38,7 @@ function plan(old, opts) {
   // one document per key
   S.ALL.forEach(k => {
     const v = d[k];
-    const dflt = (k === 'settings' || k === 'settingsRt' || k === 'schedules' || k === 'availability' || k === 'checklistState' || k === 'signoffs') ? {} : [];
+    const dflt = (k === 'settings' || k === 'settingsRt' || k === 'schedules' || k === 'availability' || k === 'checklistState' || k === 'signoffs' || k === 'annState') ? {} : [];
     const val = v === undefined ? dflt : v;
     const p = JSON.stringify(val);
     if (p.length > 900000) notes.push('WARNING: ' + k + ' is ' + p.length + ' bytes, over the 900,000 limit.');

@@ -19,7 +19,7 @@ Do none of this before the 2027 launch. Once the new rules go live, the old app 
    { "functions": { "source": ".", "ignore": ["node_modules", "tests", "tools", "js", "css", "*.png", "*.svg", "index.html", "service-worker.js", "manifest.json"] },
      "firestore": { "rules": "firestore.rules" } }
    ```
-   then `firebase deploy --only functions`. (Existing Twilio and call-sheet settings are unchanged. Text messages now require an admin sign-in.)
+   then `firebase deploy --only functions`. (Text messaging has been removed; the weeklyScheduleSMS and manualSendScheduleSMS functions can be deleted with `firebase functions:delete weeklyScheduleSMS manualSendScheduleSMS`.)
 5. **Migrate the data** (safe: the old document is untouched):
    ```
    gcloud auth application-default login

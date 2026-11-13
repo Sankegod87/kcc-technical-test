@@ -723,32 +723,6 @@ function manualSendScheduleEmail(){
   sendScheduleEmails(key, entry);
 }
 
-function manualSendScheduleSMS(){
-  if(!isAdmin()){ toast('Admin permission required','error'); return; }
-  if(!window._sendScheduleSMS){ toast('SMS not available — Firebase not connected','error'); return; }
-  const now = new Date();
-  const daysUntilSun = (7 - now.getDay()) % 7 || 7;
-  const sun = new Date(now); sun.setDate(now.getDate() + daysUntilSun);
-  const key = schedKey(sun);
-  const entry = db.schedules[key];
-  const dateStr = sun.toLocaleDateString('en-CA',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
-  if(!entry || !entry.crew || !entry.crew.length){
-    toast('No crew scheduled for '+dateStr,'error');
-    return;
-  }
-  if(!confirm('Text the schedule to '+entry.crew.length+' crew member'+(entry.crew.length>1?'s':'')+' for '+dateStr+'?')) return;
-  toast('📱 Sending texts…','info');
-  window._sendScheduleSMS()
-    .then(result=>{
-      const data = result.data || {};
-      toast(data.message || 'Texts sent','success');
-    })
-    .catch(err=>{
-      console.error('SMS send failed', err);
-      toast('Failed to send texts: '+(err.message||'unknown error'),'error');
-    });
-}
-
 function checkScheduleEmails(){
   // Thursday auto-send of the schedule for the upcoming Sunday.
   // Only a signed-in admin or master can trigger it, and it is recorded in the shared settings,

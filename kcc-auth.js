@@ -51,6 +51,9 @@ exports.kccSetSecret = functions.https.onCall(wrap((d, c) => core.setSecret(d, c
 exports.kccNotesGet = functions.https.onCall(wrap((d, c) => core.notesGet(d, c)));
 exports.kccNoteAdd = functions.https.onCall(wrap((d, c) => core.noteAdd(d, c)));
 exports.kccNoteDel = functions.https.onCall(wrap((d, c) => core.noteDel(d, c)));
+exports.kccFeedbackSend = functions.https.onCall(wrap((d, c) => core.feedbackSend(d, c)));
+exports.kccFeedbackList = functions.https.onCall(wrap((d, c) => core.feedbackList(d, c)));
+exports.kccFeedbackAct = functions.https.onCall(wrap((d, c) => core.feedbackAct(d, c)));
 exports.kccHasSecret = functions.https.onCall(wrap((d, c) => core.hasSecret(d, c)));
 exports.kccYtLive = functions.https.onCall(wrap((d, c) => core.ytLive(d, c)));
 exports.kccSubmitRequest = functions.https.onCall(wrap((d, c, ip) => core.submitExternalRequest(d, c, ip)));

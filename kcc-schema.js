@@ -9,7 +9,7 @@
   var TIERS = {
     open: ['fixtures', 'outages', 'inventory', 'orders', 'usageLog', 'usedBulbs', 'bulbRegistry', 'availability',
       'checklistState', 'shows', 'gearItems', 'checkouts', 'maintLogs', 'signoffs', 'feedbackItems',
-      'incidentReports', 'swapRequests', 'auditLog', 'serviceNotes', 'techRequests', 'settingsRt'],
+      'incidentReports', 'swapRequests', 'auditLog', 'serviceNotes', 'techRequests', 'annState', 'settingsRt'],
     sched: ['schedules'],
     admin: ['announcements', 'trainingModules', 'rehearsals', 'vendors', 'specialEvents', 'settings'],
     server: ['technicians']

@@ -20,7 +20,10 @@ function go(page){
   const bnnMore=document.getElementById('bnn-more');if(bnnMore)bnnMore.className='bnn'+(['history','crew','settings','scan','checklist','nfc','checkout','maintenance','requests','announcements','training','profiles'].includes(page)?' active':'');
   const navMore=document.getElementById('nav-more');if(navMore)navMore.className='nb'+(['inventory','history','nfc','settings','scan'].includes(page)?' active':'');
 }
+// Feedback is switched off for now. Set this to true to open it up again (everything else is already built).
+window.KCC_FEEDBACK_LIVE=false;
 function feedbackNav(){
+  if(!window.KCC_FEEDBACK_LIVE){ toast('🚧 Feedback is under construction — coming soon!','info'); return; }
   if(isAdmin()) go('feedbackadmin'); else document.getElementById('m-feedback').style.display='flex';
 }
 function refreshPage(){
@@ -59,6 +62,7 @@ function renderDash(){
   const pendingSwaps=(db.swapRequests||[]).filter(s=>s.status==='pending').length;
   const openIncidents=(db.incidentReports||[]).filter(r=>!r.resolved).length;
   const unreadFeedback=(db.feedbackItems||[]).filter(f=>!f.read).length;
+  try{_updateFeedbackBadge();}catch(e){}
   const totalVolHours=(db.technicians||[]).reduce((s,t)=>s+(t.volunteerHours||0),0);
 
   document.getElementById('statsRow').innerHTML=`

@@ -10,7 +10,7 @@ const vm = require('vm'); const ctx = { window: {} }; vm.createContext(ctx); vm.
 assert.deepStrictEqual(JSON.parse(JSON.stringify(ctx.window.KCC_SCHEMA.TIERS)), S.TIERS);
 // every key the app keeps is placed in exactly one tier
 const seen = {}; S.ALL.forEach(k => { assert.ok(!seen[k], k + ' is in two tiers'); seen[k] = 1; });
-const appKeys = ['fixtures','outages','inventory','orders','usageLog','technicians','settings','usedBulbs','bulbRegistry','schedules','availability','checklistState','shows','gearItems','checkouts','maintLogs','techRequests','announcements','signoffs','trainingModules','feedbackItems','incidentReports','rehearsals','swapRequests','auditLog','vendors','specialEvents','serviceNotes'];
+const appKeys = ['fixtures','outages','inventory','orders','usageLog','technicians','settings','usedBulbs','bulbRegistry','schedules','availability','checklistState','shows','gearItems','checkouts','maintLogs','techRequests','announcements','signoffs','trainingModules','feedbackItems','incidentReports','rehearsals','swapRequests','auditLog','vendors','specialEvents','serviceNotes','annState'];
 appKeys.forEach(k => assert.ok(S.APP_KEYS.includes(k), 'app key missing from the layout: ' + k));
 assert.strictEqual(S.APP_KEYS.length, appKeys.length);
 console.log('rules and layout are in sync');

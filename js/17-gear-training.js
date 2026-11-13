@@ -926,78 +926,90 @@ async function sendAnnouncementEmails(ann){
 }
 
 // ── Feedback ──────────────────────────────────────────────
-function submitFeedback(){
+async function submitFeedback(){
+  if(!window.KCC_FEEDBACK_LIVE){toast('🚧 Feedback is under construction — coming soon!','info');return;}
   const msg=(document.getElementById('fb-message').value||'').trim();
   if(!msg){toast('Please write your feedback first','error');return;}
+  if(!window._kccFeedbackSend){toast('Cannot reach the server right now','error');return;}
   const anon=document.getElementById('fb-anon').value==='yes';
-  const tech=getCurTech();
-  if(!db.feedbackItems)db.feedbackItems=[];
-  db.feedbackItems.unshift({
-    id:'fb_'+Date.now(),
-    category:document.getElementById('fb-category').value,
-    message:msg,
-    author:anon?'Anonymous':(tech?tech.name:'Unknown'),
-    createdAt:Date.now(),
-    read:false
-  });
-  save();
-  document.getElementById('m-feedback').style.display='none';
-  document.getElementById('fb-message').value='';
-  // Update badge
-  _updateFeedbackBadge();
-  toast('✅ Feedback submitted — thanks!','success');
+  const btn=document.getElementById('fb-send'); if(btn)btn.disabled=true;
+  try{
+    // Sent straight to the server's private store: it never goes into the shared app data other crew can read.
+    await window._kccFeedbackSend({category:document.getElementById('fb-category').value,message:msg,anon});
+    document.getElementById('m-feedback').style.display='none';
+    document.getElementById('fb-message').value='';
+    toast('✅ Feedback sent — thanks!','success');
+  }catch(e){ toast((e&&e.message)||'Could not send feedback','error'); }
+  if(btn)btn.disabled=false;
 }
 
-function renderFeedbackAdmin(){
-  if(!isAdmin()){
-    document.getElementById('feedback-list').innerHTML='<div style="text-align:center;padding:40px"><div style="font-size:36px;margin-bottom:10px">🔒</div><div class="dim">Admin access only</div></div>';
+let _fbItems=[];
+async function renderFeedbackAdmin(){
+  const listEl=document.getElementById('feedback-list');if(!listEl)return;
+  if(!window.KCC_FEEDBACK_LIVE){
+    listEl.innerHTML='<div style="text-align:center;padding:40px"><div style="font-size:36px;margin-bottom:10px">🚧</div><div class="fw7">Feedback is under construction</div><div class="dim">Coming soon.</div></div>';
     return;
   }
-  if(!db.feedbackItems)db.feedbackItems=[];
-  const listEl=document.getElementById('feedback-list');if(!listEl)return;
-  // Mark all as read
-  db.feedbackItems.forEach(f=>{if(!f.read){f.read=true;}});
-  save();_updateFeedbackBadge();
-  if(!db.feedbackItems.length){
+  if(!isAdmin()){
+    listEl.innerHTML='<div style="text-align:center;padding:40px"><div style="font-size:36px;margin-bottom:10px">🔒</div><div class="dim">Admin access only</div></div>';
+    return;
+  }
+  try{
+    // One-off: move any feedback that used to live in the shared data into the private store, then empty it.
+    if((db.feedbackItems||[]).length){
+      await window._kccFeedbackAct({op:'import',items:db.feedbackItems});
+      db.feedbackItems=[]; save();
+    }
+    const r=await window._kccFeedbackList(); _fbItems=r.items||[];
+    if(r.unread){ await window._kccFeedbackAct({op:'read'}); }
+  }catch(e){ listEl.innerHTML='<div class="dim" style="padding:30px;text-align:center">Could not load feedback: '+esc((e&&e.message)||'error')+'</div>'; return; }
+  _fbBadge(0);
+  if(!_fbItems.length){
     listEl.innerHTML='<div style="text-align:center;padding:40px"><div style="font-size:36px;margin-bottom:10px">💬</div><div class="dim">No feedback yet</div></div>';
     return;
   }
-  const CAT_COLORS={General:'var(--blue)',Equipment:'var(--amber)',Scheduling:'#534AB7',Training:'#3B6D11',Communication:'var(--blue)',Other:'var(--dim2)'};
-  listEl.innerHTML=[...db.feedbackItems].sort((a,b)=>b.createdAt-a.createdAt).map(f=>`
+  const CAT_COLORS={General:'var(--blue)',Equipment:'var(--amber)',Scheduling:'#534AB7',Training:'#3B6D11',Communication:'var(--blue)',Safety:'var(--red)',Other:'var(--dim2)'};
+  listEl.innerHTML='<div class="dim" style="font-size:12px;margin-bottom:10px">🔒 Anonymous feedback stores no name and only the date, and is listed in random order within each day.</div>'+
+    _fbItems.map(f=>`
     <div class="panel mb14">
       <div class="ph row jbet">
         <div class="row gap8">
           <span style="font-size:12px;font-family:var(--mono);font-weight:700;color:${CAT_COLORS[f.category]||'var(--dim2)'}">${esc(f.category)}</span>
+          ${f.read?'':'<span class="badge" style="background:var(--amber);color:#000">NEW</span>'}
         </div>
         <div class="row gap8">
-          <span class="dim" style="font-size:11px;font-family:var(--mono)">${fmtDate(f.createdAt)}</span>
+          <span class="dim" style="font-size:11px;font-family:var(--mono)">${esc(f.day)}</span>
           <button onclick="deleteFeedback('${esc(f.id)}')" style="background:none;border:none;color:var(--dim);cursor:pointer;font-size:14px" title="Delete">✕</button>
         </div>
       </div>
       <div class="pb">
-        <div style="font-size:14px;line-height:1.6;color:var(--text);margin-bottom:8px">${f.message}</div>
-        <div class="dim" style="font-size:12px;font-family:var(--mono)">From: ${esc(f.author)}</div>
+        <div style="font-size:14px;line-height:1.6;color:var(--text);margin-bottom:8px;white-space:pre-line">${esc(f.message)}</div>
+        <div class="dim" style="font-size:12px;font-family:var(--mono)">From: ${f.anon?'Anonymous':esc(f.author)}</div>
       </div>
     </div>`).join('');
 }
 
-function deleteFeedback(id){
-  db.feedbackItems=(db.feedbackItems||[]).filter(f=>f.id!==id);
-  save();renderFeedbackAdmin();toast('Deleted','info');
+async function deleteFeedback(id){
+  if(!isAdmin())return;
+  try{ await window._kccFeedbackAct({op:'delete',id}); toast('Deleted','info'); renderFeedbackAdmin(); }catch(e){ toast((e&&e.message)||'Failed','error'); }
 }
 
-function clearFeedback(){
+async function clearFeedback(){
   if(!isAdmin())return;
   if(!confirm('Delete all feedback?'))return;
-  db.feedbackItems=[];
-  save();renderFeedbackAdmin();toast('Feedback cleared','info');
+  try{ await window._kccFeedbackAct({op:'clear'}); toast('Feedback cleared','info'); renderFeedbackAdmin(); }catch(e){ toast((e&&e.message)||'Failed','error'); }
 }
 
-function _updateFeedbackBadge(){
+function _fbBadge(n){
   const badge=document.getElementById('feedback-badge');if(!badge)return;
-  const unread=(db.feedbackItems||[]).filter(f=>!f.read).length;
-  badge.style.display=unread?'':'none';
-  badge.textContent=unread;
+  badge.style.display=n?'':'none'; badge.textContent=n;
+}
+let _fbBadgeAt=0;
+// Admins get the unread count from the server (at most once a minute).
+function _updateFeedbackBadge(){
+  if(!window.KCC_FEEDBACK_LIVE||!isAdmin()||!window._kccFeedbackList||Date.now()-_fbBadgeAt<60000)return;
+  _fbBadgeAt=Date.now();
+  window._kccFeedbackList().then(r=>_fbBadge(r.unread||0)).catch(()=>{});
 }
 function renderAnnouncements(){
   if(!db.announcements)db.announcements=[];

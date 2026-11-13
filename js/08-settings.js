@@ -28,9 +28,6 @@ function renderSettings(){
   else if(Notification.permission==='granted'){np.innerHTML='<span class="badge bok">✅ Enabled</span>';}
   else if(Notification.permission==='denied'){np.innerHTML='<span class="badge bout">Blocked — enable in browser settings</span>';}
   else{np.innerHTML='<span class="badge blow">Not yet enabled</span>';}}
-  // Branding
-  const el_on=document.getElementById('s-orgName');const el_oe=document.getElementById('s-orgEmoji');const el_ot=document.getElementById('s-orgTagline');
-  if(el_on)el_on.value=s.orgName||'';if(el_oe)el_oe.value=s.orgEmoji||'';if(el_ot)el_ot.value=s.orgTagline||'';
   // Accent colour swatches
   const swatchEl=document.getElementById('s-colourSwatches');
   if(swatchEl){
@@ -68,26 +65,6 @@ function renderSettings(){
   if(og)og.value=s.overdueGrace??0;if(ra)ra.value=s.reminderAfter??3;if(er)er.checked=!!s.emailReminders;
 }
 
-// ── Branding ──
-function saveBranding(){
-  if(!db.settings)db.settings={};
-  db.settings.orgName=(document.getElementById('s-orgName').value||'').trim();
-  db.settings.orgEmoji=(document.getElementById('s-orgEmoji').value||'').trim();
-  db.settings.orgTagline=(document.getElementById('s-orgTagline').value||'').trim();
-  applyBranding();save();toast('Branding saved','success');
-}
-function applyBranding(){
-  const s=db.settings||{};
-  const name=s.orgName||'KCC Technical';
-  const emoji=s.orgEmoji||'';
-  // Sidebar logo text
-  document.querySelectorAll('.logo-text').forEach(el=>{el.textContent=name;});
-  // Login screen wordmark
-  const lw=document.getElementById('ls-wordmark');if(lw)lw.textContent=(emoji?emoji+' ':'')+name;
-  const lt=document.getElementById('ls-tagline');if(lt)lt.textContent=s.orgTagline||'Production & Technical';
-  document.title=name;
-}
-
 // ── Accent colour ──
 function previewAccent(hex){
   const prevEl=document.getElementById('s-accentPreview');
@@ -106,11 +83,11 @@ function applyAccentColour(hex){
   const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
   const dark='rgb('+Math.round(r*.7)+','+Math.round(g*.7)+','+Math.round(b*.7)+')';
   const glow='rgba('+r+','+g+','+b+',.08)';
-  document.documentElement.style.setProperty('--amber',hex);
-  document.documentElement.style.setProperty('--amber2',dark);
-  document.documentElement.style.setProperty('--aglow',glow);
-  document.documentElement.style.setProperty('--blue',hex);
-  document.documentElement.style.setProperty('--bglow',glow);
+  // The dark theme sets these on <body>, which would hide anything set only on <html>, so set them on both.
+  [document.documentElement,document.body].forEach(el=>{ if(!el)return;
+    el.style.setProperty('--amber',hex);el.style.setProperty('--amber2',dark);el.style.setProperty('--aglow',glow);
+    el.style.setProperty('--blue',hex);el.style.setProperty('--bglow',glow);
+  });
 }
 
 // ── Widget prefs ──
@@ -249,7 +226,6 @@ function saveOverdueSettings(){
 function applyCustomisation(){
   const s=db.settings||{};
   if(s.accentColour)applyAccentColour(s.accentColour);
-  applyBranding();
 }
 async function claimMasterAdmin(){
   const t=getCurTech();

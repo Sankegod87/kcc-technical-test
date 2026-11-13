@@ -43,7 +43,7 @@ const { FAKE } = require('./fake-modules.js');
     await p.exposeFunction('__tokenInfo', async t => tokens.get(t) || null);
     await p.exposeFunction('__call', async (name, data, auth) => {
       const a = JSON.parse(auth), d = JSON.parse(data), ctxo = a ? { auth: { uid: a.uid, token: a.claims } } : {};
-      const map = { kccLogin: () => core.login(d), kccBootstrap: () => core.bootstrap(d), kccTechOp: () => core.techOp(d, ctxo), kccConfirm: () => core.confirmSelf(d, ctxo), kccConfirmLink: () => core.confirmLink(d), kccLinks: () => core.makeLinks(d, ctxo), kccSetSecret: () => core.setSecret(d, ctxo), kccHasSecret: () => core.hasSecret(d, ctxo), kccNotesGet: () => core.notesGet(d, ctxo), kccNoteAdd: () => core.noteAdd(d, ctxo), kccNoteDel: () => core.noteDel(d, ctxo), kccYtLive: () => core.ytLive(d, ctxo), kccSubmitRequest: () => core.submitExternalRequest(d, ctxo, '5.5.5.' + (opts && opts.ip || 1)) };
+      const map = { kccLogin: () => core.login(d), kccBootstrap: () => core.bootstrap(d), kccTechOp: () => core.techOp(d, ctxo), kccConfirm: () => core.confirmSelf(d, ctxo), kccConfirmLink: () => core.confirmLink(d), kccLinks: () => core.makeLinks(d, ctxo), kccSetSecret: () => core.setSecret(d, ctxo), kccHasSecret: () => core.hasSecret(d, ctxo), kccNotesGet: () => core.notesGet(d, ctxo), kccNoteAdd: () => core.noteAdd(d, ctxo), kccNoteDel: () => core.noteDel(d, ctxo), kccFeedbackSend: () => core.feedbackSend(d, ctxo), kccFeedbackList: () => core.feedbackList(d, ctxo), kccFeedbackAct: () => core.feedbackAct(d, ctxo), kccYtLive: () => core.ytLive(d, ctxo), kccSubmitRequest: () => core.submitExternalRequest(d, ctxo, '5.5.5.' + (opts && opts.ip || 1)) };
       try { const r = await map[name](); setTimeout(notify, 5); return { data: r }; } catch (e) { return { error: { code: e.code || 'internal', message: e.message, details: e.details } }; }
     });
     await p.exposeFunction('__fsGet', async (pth, auth) => { const a = JSON.parse(auth); if (!canRead(pth, a)) return { error: 'permission-denied' }; const s = await F.fs.doc(pth).get(); return { exists: s.exists, data: s.data() }; });
@@ -125,6 +125,42 @@ const { FAKE } = require('./fake-modules.js');
   await pa.evaluate(() => { db.announcements.push({ id: 'a2', title: 'From admin', body: 'b', createdAt: 2 }); return save(); }); await sleep(700);
   assert.ok(docs('announcements').some(a => a.id === 'a2')); await sleep(500);
   assert.ok(await p.evaluate(() => db.announcements.some(a => a.id === 'a2'))); ok('admin writes admin data; crew device receives it live');
+  // announcements: priority, expiry, seen-by tracking, reactions by crew
+  await pa.evaluate(() => { openM('addAnnouncement'); document.getElementById('an-title').value = 'Gate code changed'; document.getElementById('an-body').value = 'New code on the door.'; document.getElementById('an-pri').value = 'urgent'; saveAnnouncement(); db.announcements.push({ id: 'old1', title: 'Old news', body: 'b', createdAt: 1, expires: Date.now() - 1000 }); return save(); }); await sleep(900);
+  const urgent = await pa.evaluate(() => db.announcements.find(a => a.title === 'Gate code changed'));
+  assert.ok(urgent && urgent.priority === 'urgent' && urgent.pinned, 'urgent announcement saved and pinned'); await sleep(500);
+  assert.ok(await p.evaluate(() => { renderDash(); return /Gate code changed/.test(document.getElementById('ann-urgent').innerText); }), 'crew sees the urgent strip on the dashboard');
+  await p.evaluate(() => { go('announcements'); }); await sleep(900);
+  const crewFeed = await p.evaluate(() => document.getElementById('ann-list').innerText);
+  assert.match(crewFeed, /URGENT/); assert.match(crewFeed, /Gate code changed/); assert.ok(!/Old news/.test(crewFeed), 'expired announcement hidden from crew');
+  const crewId = await p.evaluate(() => getCurTech().id);
+  assert.ok(docs('annState')[urgent.id] && docs('annState')[urgent.id].seen[crewId], 'crew opening it is recorded as seen (written with crew rights)');
+  await p.evaluate(id => annReact(id, '👍'), urgent.id); await sleep(800);
+  assert.ok(docs('annState')[urgent.id].react['👍'].includes(crewId), 'crew reaction saved');
+  assert.ok(!(await p.evaluate(() => { renderDash(); return document.getElementById('ann-urgent').innerText; })).includes('Gate code'), 'strip clears once seen');
+  await pa.evaluate(() => go('announcements')); await sleep(600);
+  const adminFeed = await pa.evaluate(() => document.getElementById('ann-list').innerText);
+  assert.match(adminFeed, /Seen by \d+\/\d+/); assert.match(adminFeed, /EXPIRED/); assert.match(adminFeed, /Remind unread|Seen by/);
+  ok('announcements: urgent strip, expiry, seen-by receipts and crew reactions');
+  // feedback: shows "under construction" while switched off; private, anonymous, admin-only once on
+  await p.evaluate(() => feedbackNav()); await sleep(300);
+  assert.match(await p.evaluate(() => document.body.innerText), /under construction/i); assert.ok(!(await p.evaluate(() => document.getElementById('m-feedback').style.display === 'flex')), 'feedback form stays closed while under construction');
+  await p.evaluate(() => { window.KCC_FEEDBACK_LIVE = true; }); await pa.evaluate(() => { window.KCC_FEEDBACK_LIVE = true; });
+  await p.evaluate(() => { document.getElementById('fb-message').value = 'The <b>mic</b> crackles'; document.getElementById('fb-category').value = 'Equipment'; document.getElementById('fb-anon').value = 'yes'; return submitFeedback(); }); await sleep(800);
+  const fbDoc = JSON.parse(JSON.stringify(F.store.get('private/feedback') || {})); const fbItem = (fbDoc.items || [])[0];
+  assert.ok(fbItem && fbItem.anon && fbItem.author === '' && /^\d{4}-\d{2}-\d{2}$/.test(fbItem.day) && !('createdAt' in fbItem) && !JSON.stringify(fbItem).includes(crewId), 'anonymous feedback stores no name, id or time');
+  assert.ok(!F.store.has('data/feedbackItems') || docs('feedbackItems').length === 0, 'feedback is not in the shared data');
+  const crewTry = await p.evaluate(() => window._kccFeedbackList().then(() => 'allowed', e => String(e.message || e)));
+  assert.match(crewTry, /permission|admin/i, 'crew cannot read feedback');
+  await pa.evaluate(() => go('feedbackadmin')); await sleep(900);
+  const fbHtml = await pa.evaluate(() => document.getElementById('feedback-list').innerHTML);
+  assert.ok(fbHtml.includes('&lt;b&gt;mic&lt;/b&gt;') && !fbHtml.includes('<b>mic</b>'), 'feedback text is escaped'); assert.match(fbHtml, /Anonymous/);
+  ok('feedback: anonymous items carry no name/id/time, crew cannot read them, admin sees them escaped');
+  // branding and accent colour must actually change what is on screen (the dark theme sets its own colour on <body>)
+  await pa.evaluate(() => { go('settings'); document.getElementById('s-accentHex').value = '#c2410c'; saveAccentColour(); }); await sleep(500);
+  const look = await pa.evaluate(() => ({ amber: getComputedStyle(document.body).getPropertyValue('--amber').trim(), tab: (document.querySelector('.snav-btn.active') ? getComputedStyle(document.querySelector('.snav-btn.active')).color : '') }));
+  assert.strictEqual(look.amber, '#c2410c'); assert.strictEqual(look.tab, 'rgb(194, 65, 12)');
+  ok('accent colour really changes the app');
   await pa.evaluate(() => { emailjs.send = async () => ({}); openM('addTech'); });
   for (const [id, v] of [['tn', 'Casey New'], ['tr', 'Camera op'], ['tem', 'casey@example.org'], ['tpw', 'casey-pass-1'], ['tpw2', 'casey-pass-1']]) await pa.fill('#' + id, v);
   await pa.evaluate(() => addTech()); await sleep(1200);

@@ -30,7 +30,7 @@
 
   // ── the record ──
   function build(t,notes,forAdmin){
-    const mods=db.trainingModules||[], done=t.completedModules||[], org=(db.settings||{}).orgName||'KCC Technical';
+    const mods=db.trainingModules||[], done=t.completedModules||[], org='KCC Technical';
     const rows=mods.map(m=>{
       const att=((t.practicals||{})[m.id])||[], pass=att.find(a=>a.passed), last=att[0];
       const q=!hasQuiz(m)?'<span class="mu">n/a</span>':(t.quizPassed||[]).includes(m.id)?'<b class="ok">Passed</b>':'<span class="mu">Not yet</span>';

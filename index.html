@@ -178,6 +178,9 @@ window._kccSetSecret = (name, value) => call('kccSetSecret')({ name, value });
 window._kccHasSecret = (name) => call('kccHasSecret')({ name });
 window._kccNotesGet = (id) => call('kccNotesGet')({ id });
 window._kccNoteAdd = (p) => call('kccNoteAdd')(p);
+window._kccFeedbackSend = (p) => call('kccFeedbackSend')(p);
+window._kccFeedbackList = () => call('kccFeedbackList')({});
+window._kccFeedbackAct = (p) => call('kccFeedbackAct')(p);
 window._kccNoteDel = (p) => call('kccNoteDel')(p);
 window._kccYtLive = (force) => call('kccYtLive')({ force: !!force });
 window._kccSubmitRequest = (p) => call('kccSubmitRequest')(p);
@@ -335,7 +338,7 @@ initFirebase();
 
       <div class="ls-footer">
         <span class="ls-sync-dot" id="ls-sync-dot"></span>
-        KCC Technical &nbsp;·&nbsp; <span id="ls-syncStatus">Connecting…</span>
+        <span id="ls-footName">KCC Technical</span> &nbsp;·&nbsp; <span id="ls-syncStatus">Connecting…</span>
       </div>
     </div>
 
@@ -957,7 +960,6 @@ initFirebase();
       <button data-perm="admin" class="btn bg bsm" onclick="openAddRehearsalModal()">+ Rehearsal</button>
       <button data-perm="admin" class="btn ba bsm" onclick="openAddSpecialEventModal()">+ Special Event</button>
       <button data-perm="admin" class="btn bb bsm" onclick="manualSendScheduleEmail()" title="Send schedule email to assigned crew for the upcoming Sunday">📧 Send This Week</button>
-      <button data-perm="admin" class="btn bb bsm" onclick="manualSendScheduleSMS()" title="Text the schedule to assigned crew for the upcoming Sunday">📱 Text This Week</button>
     </div>
   </div>
 
@@ -1080,7 +1082,7 @@ initFirebase();
       <div class="dim" style="margin-top:4px">Crew feedback and suggestions — admin only</div>
     </div>
     <div style="display:flex;gap:8px">
-      <button class="btn ba bsm" onclick="document.getElementById('m-feedback').style.display='flex'">Send feedback</button>
+      <button class="btn ba bsm" onclick="feedbackNav()">Send feedback</button>
       <button class="btn br bsm" data-perm="admin" onclick="clearFeedback()">🗑️ Clear All</button>
     </div>
   </div>
@@ -1233,20 +1235,6 @@ initFirebase();
     </div>
   </div>
   <div class="grid2">
-
-    <!-- ── Branding ── -->
-    <div class="panel" data-perm="admin">
-      <div class="ph"><span class="pt">🏷️ Branding</span></div>
-      <div class="pb">
-        <p class="dim mb12">Customize the app name and logo emoji shown on the login screen and sidebar.</p>
-        <div class="fgrid" style="grid-template-columns:1fr 80px">
-          <div class="fg mb12"><label>Organization Name</label><input id="s-orgName" placeholder="e.g. KCC Technical"></div>
-          <div class="fg mb12"><label>Logo Emoji</label><input id="s-orgEmoji" placeholder="⚡" style="text-align:center;font-size:20px" maxlength="2"></div>
-        </div>
-        <div class="fg mb12"><label>Tagline / Subtitle (optional)</label><input id="s-orgTagline" placeholder="e.g. Production & Lighting Team"></div>
-        <button class="btn ba" onclick="saveBranding()">Save Branding</button>
-      </div>
-    </div>
 
     <!-- ── Accent Colour ── -->
     <div class="panel" data-perm="admin">
@@ -2036,6 +2024,7 @@ initFirebase();
 <script src="js/37-launch.js"></script>
 <script src="js/38-emails.js"></script>
 <script src="js/39-requests.js"></script>
+<script src="js/40-announcements.js"></script>
 <script src="js/22-server.js"></script>
 <script src="js/17-gear-training.js"></script>
 
@@ -2331,6 +2320,10 @@ initFirebase();
             <option value="IT">💻 IT</option>
           </select>
         </div>
+        <div class="fg"><label>Priority</label>
+          <select id="an-pri"><option value="normal">Normal</option><option value="important">❗ Important</option><option value="urgent">🚨 Urgent</option></select>
+        </div>
+        <div class="fg"><label>Hide after (optional)</label><input type="date" id="an-exp"></div>
         <div class="fg"><label>Pin to top</label>
           <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--s2);border:1px solid var(--border);border-radius:6px;margin-top:2px">
             <input type="checkbox" id="an-pin" style="width:16px;height:16px;accent-color:var(--amber)">
@@ -2592,7 +2585,7 @@ initFirebase();
   <div class="modal" style="max-width:480px">
     <div class="mh"><span class="mt">💬 Submit Feedback</span><button class="xb" onclick="document.getElementById('m-feedback').style.display='none'">✕</button></div>
     <div class="mb">
-      <p class="dim" style="margin-bottom:14px">Share ideas, concerns, or suggestions with the team leads. Your feedback is anonymous unless you choose to include your name.</p>
+      <p class="dim" style="margin-bottom:14px">Share ideas, concerns, or suggestions with the team leads. Choose “anonymous” and nothing links it to you: no name is saved, and only the date, not the time, is kept. Only admins can read it.</p>
       <div class="fgrid">
         <div class="fg"><label>Category</label>
           <select id="fb-category">
@@ -2601,6 +2594,7 @@ initFirebase();
             <option value="Scheduling">📅 Scheduling</option>
             <option value="Training">📚 Training</option>
             <option value="Communication">📢 Communication</option>
+            <option value="Safety">⚠️ Safety</option>
             <option value="Other">✨ Other</option>
           </select>
         </div>
@@ -2615,7 +2609,7 @@ initFirebase();
     </div>
     <div class="mf">
       <button class="btn bgh" onclick="document.getElementById('m-feedback').style.display='none'">Cancel</button>
-      <button class="btn ba" onclick="submitFeedback()">Submit Feedback</button>
+      <button class="btn ba" id="fb-send" onclick="submitFeedback()">Submit Feedback</button>
     </div>
   </div>
 </div>

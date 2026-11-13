@@ -1,7 +1,7 @@
 // Settings page: grouped tabs + search. Panels keep their own content and permissions; this only shows/hides them.
 (function(){
   const GROUPS=[
-    {id:'general',label:'General',   words:['branding','accent','dashboard widgets']},
+    {id:'general',label:'General',   words:['accent','dashboard widgets']},
     {id:'conn',   label:'Connections',words:['connections']},
     {id:'crew',   label:'Crew & access',words:['schedule roles','training options','admin pin','claim master','role management','account','launch email']},
     {id:'gear',   label:'Gear & stock',words:['gear categories','departments','vendors','maintenance defaults']},
