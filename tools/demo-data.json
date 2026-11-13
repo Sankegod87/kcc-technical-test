@@ -400,7 +400,7 @@
       "id": "tm1",
       "title": "Camera framing basics",
       "dept": "Cameras",
-      "desc": "Shot sizes and headroom for the sanctuary cameras.",
+      "desc": "Shot sizes and headroom; the Blackmagic camera takes close-ups and the PTZ camera takes wide shots.",
       "url": "",
       "level": "Beginner",
       "duration": "25 min",
@@ -408,12 +408,8 @@
       "createdAt": 1791663566374,
       "links": [
         {
-          "label": "Camera operator guide",
-          "url": "https://example.org/camera-guide.pdf"
-        },
-        {
-          "label": "Framing video",
-          "url": "https://www.youtube.com/watch?v=example"
+          "label": "Camera Station manual (PDF)",
+          "url": "manuals/camera-station-manual.pdf"
         }
       ],
       "gearIds": [
@@ -451,9 +447,22 @@
               "Only during worship"
             ],
             "a": 1
+          },
+          {
+            "q": "Which camera takes the wide shots?",
+            "opts": [
+              "The PTZ camera near the back exit",
+              "The Blackmagic camera",
+              "Both",
+              "Neither"
+            ],
+            "a": 0
           }
         ]
-      }
+      },
+      "stations": [
+        "Camera Station"
+      ]
     },
     {
       "id": "tm2",
