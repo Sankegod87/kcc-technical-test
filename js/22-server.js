@@ -53,7 +53,7 @@ window.addEventListener('rosterChanged',function(){ if(typeof buildLsGrid==='fun
 try{ const m=sessionStorage.getItem('kcc_msg'); if(m){ sessionStorage.removeItem('kcc_msg'); setTimeout(()=>toast(m,'info'),1200); } }catch(e){}
 
 // The public request form needs no sign-in, so show it as soon as the page is ready (nothing else will trigger it).
-function _showExtIfRequested(){ if((location.hash==='#request'||location.hash==='#external-request')&&typeof showExternalRequestScreen==='function') showExternalRequestScreen(); }
+function _showExtIfRequested(){ if(location.hash==='#volunteer'&&typeof showVolunteerScreen==='function'){ showVolunteerScreen(); return; } if((location.hash==='#request'||location.hash==='#external-request')&&typeof showExternalRequestScreen==='function') showExternalRequestScreen(); }
 if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',_showExtIfRequested); else _showExtIfRequested();
 window.addEventListener('hashchange',_showExtIfRequested);
 

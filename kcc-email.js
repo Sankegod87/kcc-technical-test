@@ -113,6 +113,15 @@
 
   // ── Tech requests (the public form + the admin inbox) ──
   function fmtDay(ms) { try { return new Date(ms).toLocaleDateString('en-US', { timeZone: 'America/Edmonton', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }); } catch (e) { return ''; } }
+  // AV setup answers as label/value rows (used in emails and in the inbox).
+  function avRows(av) {
+    if (!av) return [];
+    var t12 = function (v) { var m = /^(\d{1,2}):(\d{2})$/.exec(v || ''); if (!m) return ''; var h = +m[1]; return (h % 12 || 12) + ':' + m[2] + ' ' + (h >= 12 ? 'PM' : 'AM'); };
+    var mics = [av.handMics ? av.handMics + ' handheld' : '', av.headMics ? av.headMics + ' headset/lapel' : ''].filter(Boolean).join(', ');
+    var extras = [av.slides ? 'Slides/projector' : '', av.playback ? 'Music or video playback' : '', av.band ? 'Band instruments / DI boxes' : '', av.laptop ? 'Own laptop (needs HDMI)' : ''].filter(Boolean).join(', ');
+    return [['AV: stage layout', av.layout], ['AV: lighting', av.lighting], ['AV: mics', mics], ['AV: also needs', extras], ['AV: setup from', t12(av.loadIn)], ['AV: sound check', t12(av.soundCheck)],
+      ['AV: out by', t12(av.tearDown)], ['AV: day-of contact', [av.dayName, av.dayPhone].filter(Boolean).join(' \u00B7 ')], ['AV: notes', av.notes]].filter(function (x) { return x[1]; });
+  }
   function reqRows(r, withRef) {
     var rows = [];
     if (withRef && r.ref) rows.push(['Reference', r.ref]);
@@ -129,6 +138,7 @@
     if (r.attendance) rows.push(['Expected attendance', String(r.attendance)]);
     if (r.bookingRef) rows.push(['Booking reference', r.bookingRef]);
     if (r.category) rows.push(['Needs', r.category]);
+    avRows(r.av).forEach(function (x) { rows.push(x); });
     return rows.filter(function (x) { return x[1]; });
   }
   function requestSubject(kind, r, status) {
@@ -163,6 +173,6 @@
     return notice({ name: o.name, tone: T[0], badge: T[1], headline: T[2], rows: reqRows(r, true), body: o.note || '', appUrl: '' });
   }
 
-  var api = { requestNew: requestNew, requestReceipt: requestReceipt, requestStatus: requestStatus, requestSubject: requestSubject, schedule: schedule, digest: digest, notice: notice, weatherFor: weatherFor, esc: esc };
+  var api = { requestNew: requestNew, requestReceipt: requestReceipt, requestStatus: requestStatus, requestSubject: requestSubject, schedule: schedule, digest: digest, notice: notice, weatherFor: weatherFor, esc: esc, avRows: avRows };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KCC_EMAIL = api;
 })(typeof window !== 'undefined' ? window : this);

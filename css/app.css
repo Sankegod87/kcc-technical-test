@@ -954,3 +954,5 @@ svg.ic{width:1.1em;height:1.1em;vertical-align:-.18em;flex-shrink:0;display:inli
 .rq-agr-doc td:first-child{width:34%;background:#f4f6f5;font-weight:700}
 .rq-agr-sign{margin-top:26px;padding-top:14px;border-top:2px solid #111}
 @media print{body>*:not(#rq-agr){display:none!important}#rq-agr{position:static!important;background:#fff}.rq-agr-bar{display:none}.rq-agr-doc{box-shadow:none;margin:0;max-width:none;padding:0}}
+
+.rq-av{margin-top:8px;padding:8px 10px;border-radius:8px;background:var(--s2);font-size:12px;line-height:1.6}.rq-av b{display:block;margin-bottom:2px}.rq-av span{color:var(--dim2);display:inline-block;min-width:96px}

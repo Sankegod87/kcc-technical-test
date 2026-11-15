@@ -181,6 +181,9 @@ window._kccNoteAdd = (p) => call('kccNoteAdd')(p);
 window._kccFeedbackSend = (p) => call('kccFeedbackSend')(p);
 window._kccFeedbackList = () => call('kccFeedbackList')({});
 window._kccFeedbackAct = (p) => call('kccFeedbackAct')(p);
+window._kccApplySend = (p) => call('kccApplySend')(p);
+window._kccApplyList = () => call('kccApplyList')({});
+window._kccApplyAct = (p) => call('kccApplyAct')(p);
 window._kccNoteDel = (p) => call('kccNoteDel')(p);
 window._kccYtLive = (force) => call('kccYtLive')({ force: !!force });
 window._kccSubmitRequest = (p) => call('kccSubmitRequest')(p);
@@ -381,6 +384,49 @@ initFirebase();
   </div>
 </div>
 
+<!-- Volunteer sign-up: no login required, reached via the #volunteer link -->
+<div id="volScreen" class="er2" style="display:none;position:fixed;inset:0;z-index:1500;overflow-y:auto">
+  <div class="er2-wrap">
+    <div class="er2-head">
+      <div class="er2-brand">KCC Technical</div>
+      <h1>Join the tech team</h1>
+      <p>Interested in running sound, cameras, lights, slides or the livestream? Tell us a little about yourself and someone from the team will get in touch. No experience is needed, we train you.</p>
+    </div>
+    <div id="vol-form">
+      <div class="er2-card">
+        <div class="er2-step"><span>1</span> About you</div>
+        <div class="er2-grid">
+          <div class="er2-f"><label for="vol-name">Your name *</label><input id="vol-name" maxlength="80" autocomplete="name"></div>
+          <div class="er2-f"><label for="vol-email">Email *</label><input id="vol-email" type="email" maxlength="120" autocomplete="email"></div>
+          <div class="er2-f"><label for="vol-phone">Phone *</label><input id="vol-phone" maxlength="40" autocomplete="tel"></div>
+        </div>
+      </div>
+      <div class="er2-card">
+        <div class="er2-step"><span>2</span> Where would you like to help?</div>
+        <div id="vol-stations" class="er2-chips">
+          <label class="er-cat-chip"><input type="checkbox" value="Camera"> 📷 Camera</label>
+          <label class="er-cat-chip"><input type="checkbox" value="Sound"> 🎚️ Sound</label>
+          <label class="er-cat-chip"><input type="checkbox" value="Lights"> 💡 Lights</label>
+          <label class="er-cat-chip"><input type="checkbox" value="Presentation"> 📊 Presentation</label>
+          <label class="er-cat-chip"><input type="checkbox" value="Streaming"> 📡 Streaming</label>
+          <label class="er-cat-chip"><input type="checkbox" value="Not sure yet"> ❓ Not sure yet</label>
+        </div>
+        <div class="er2-f" style="margin-top:14px"><label for="vol-exp">Any experience? (optional)</label><textarea id="vol-exp" maxlength="1000" rows="3" placeholder="Tell us about anything related, or say none."></textarea></div>
+        <div class="er2-f" style="margin-top:12px"><label for="vol-avail">When are you usually free? (optional)</label><textarea id="vol-avail" maxlength="500" rows="2" placeholder="e.g. most Sundays, first and third Sundays, some weeknights"></textarea></div>
+        <div class="er2-f" style="margin-top:12px"><label for="vol-why">Why do you want to help? (optional)</label><textarea id="vol-why" maxlength="1000" rows="3"></textarea></div>
+      </div>
+      <div id="vol-status" class="er2-status"></div>
+      <button class="er2-btn" id="vol-send" onclick="submitVolunteer()">Send sign-up</button>
+    </div>
+    <div id="vol-success" class="er2-card er2-done" style="display:none">
+      <div class="er2-check">✓</div>
+      <h2>Thank you!</h2>
+      <p>We got your sign-up and someone from the tech team will be in touch. If you gave an email, we have sent you a confirmation.</p>
+      <div id="vol-ref" class="er2-ref"></div>
+    </div>
+  </div>
+</div>
+
 <!-- External Tech-Support Request Screen — no login required, reached via #request link -->
 <div id="extRequestScreen" class="er2" style="display:none;position:fixed;inset:0;z-index:1500;overflow-y:auto">
   <div class="er2-wrap">
@@ -438,6 +484,32 @@ initFirebase();
             <input id="er-media-input" type="file" accept="image/*" multiple style="display:none" onchange="_erMediaAdd(this.files)">
           </div>
           <div id="er-media-preview" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px"></div>
+        </div>
+      </div>
+
+      <div class="er2-card" id="er-av-card">
+        <label class="er2-checkrow" style="margin:0"><input type="checkbox" id="er-av-on" onchange="document.getElementById('er-av-body').style.display=this.checked?'':'none'"> <span><b>This is a bigger event</b> (conference, wedding, concert, panel). Add AV setup details.</span></label>
+        <div id="er-av-body" style="display:none;margin-top:14px">
+          <div class="er2-grid">
+            <div class="er2-f"><label for="er-av-layout">Stage layout</label>
+              <select id="er-av-layout"><option value="">Choose one</option><option>Podium / one speaker</option><option>Band or music</option><option>Panel discussion</option><option>Choir</option><option>Ceremony (wedding, funeral)</option><option>Presentation / slides only</option><option>Other</option></select></div>
+            <div class="er2-f"><label for="er-av-lighting">Lighting</label>
+              <select id="er-av-lighting"><option value="">Choose one</option><option>Normal house lights</option><option>Stage lights on the speaker</option><option>Full stage looks</option><option>Special effects (haze, colours)</option></select></div>
+            <div class="er2-f"><label for="er-av-hand">Handheld mics</label><input id="er-av-hand" type="number" min="0" max="50" inputmode="numeric" placeholder="0"></div>
+            <div class="er2-f"><label for="er-av-head">Headset / lapel mics</label><input id="er-av-head" type="number" min="0" max="50" inputmode="numeric" placeholder="0"></div>
+            <div class="er2-f"><label for="er-av-loadin">Setup / load-in from</label><input id="er-av-loadin" type="time"></div>
+            <div class="er2-f"><label for="er-av-check">Sound check at</label><input id="er-av-check" type="time"></div>
+            <div class="er2-f"><label for="er-av-tear">Finished and out by</label><input id="er-av-tear" type="time"></div>
+            <div class="er2-f"><label for="er-av-dayname">Contact on the day</label><input id="er-av-dayname" maxlength="80" placeholder="Name"></div>
+            <div class="er2-f"><label for="er-av-dayphone">Their phone</label><input id="er-av-dayphone" maxlength="40" placeholder="Phone" inputmode="tel"></div>
+          </div>
+          <div class="er2-chips" style="margin-top:12px">
+            <label class="er-cat-chip"><input type="checkbox" id="er-av-slides"> 📊 Slides / projector</label>
+            <label class="er-cat-chip"><input type="checkbox" id="er-av-playback"> 🎵 Music or video playback</label>
+            <label class="er-cat-chip"><input type="checkbox" id="er-av-band"> 🎸 Band instruments / DI boxes</label>
+            <label class="er-cat-chip"><input type="checkbox" id="er-av-tv"> 📺 Own laptop / needs HDMI</label>
+          </div>
+          <div class="er2-f" style="margin-top:12px"><label for="er-av-notes">Anything else (running order, special cues, power needs)</label><textarea id="er-av-notes" maxlength="1000" rows="3"></textarea></div>
         </div>
       </div>
 
@@ -812,6 +884,7 @@ initFirebase();
 
 <!-- ── INVENTORY ── -->
 <div id="pg-inventory" style="display:none">
+  <div id="pr-panel"></div>
   <!-- Header -->
   <div class="row jbet mb16">
     <div>
@@ -2025,6 +2098,9 @@ initFirebase();
 <script src="js/38-emails.js"></script>
 <script src="js/39-requests.js"></script>
 <script src="js/40-announcements.js"></script>
+<script src="js/41-scanner.js"></script>
+<script src="js/42-volunteer.js"></script>
+<script src="js/43-purchases.js"></script>
 <script src="js/22-server.js"></script>
 <script src="js/17-gear-training.js"></script>
 

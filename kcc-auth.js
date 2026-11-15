@@ -8,14 +8,15 @@ const stampNow = () => admin.firestore.FieldValue.serverTimestamp();
 const kccEmail = require("./kcc-email.js");
 
 // Emails about tech requests (admin alert + confirmation to the requester). Needs the EmailJS keys set on the server.
-async function sendRequestMail({ kind, to, name, req }) {
+async function sendRequestMail({ kind, to, name, req, subject, notice }) {
   const pub = process.env.EMAILJS_PUBLIC_KEY, priv = process.env.EMAILJS_PRIVATE_KEY;
   if (!pub || !priv) return;
-  const html = kind === "admin" ? kccEmail.requestNew({ name, req, appUrl: process.env.APP_URL || "" }) : kccEmail.requestReceipt({ name, req });
+  const html = kind === "notice" ? kccEmail.notice(Object.assign({ name }, notice)) : kind === "admin" ? kccEmail.requestNew({ name, req, appUrl: process.env.APP_URL || "" }) : kccEmail.requestReceipt({ name, req });
+  const subj = kind === "notice" ? subject : kccEmail.requestSubject(kind, req), ref = req || { id: "", category: "" };
   const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ service_id: "service_pjzebxk", template_id: "template_ebt36uu", user_id: pub, accessToken: priv,
-      template_params: { to_email: to, to_name: name, subject: kccEmail.requestSubject(kind, req), message: "", html, fixture_name: "Tech request", fixture_id: req.id, bulb_type: req.category || "", reported_by: "KCC Technical" } }),
+      template_params: { to_email: to, to_name: name, subject: subj, message: "", html, fixture_name: kind === "notice" ? "Notice" : "Tech request", fixture_id: ref.id, bulb_type: ref.category || "", reported_by: "KCC Technical" } }),
   });
   if (!res.ok) throw new Error("EmailJS " + res.status);
 }
@@ -54,6 +55,9 @@ exports.kccNoteDel = functions.https.onCall(wrap((d, c) => core.noteDel(d, c)));
 exports.kccFeedbackSend = functions.https.onCall(wrap((d, c) => core.feedbackSend(d, c)));
 exports.kccFeedbackList = functions.https.onCall(wrap((d, c) => core.feedbackList(d, c)));
 exports.kccFeedbackAct = functions.https.onCall(wrap((d, c) => core.feedbackAct(d, c)));
+exports.kccApplySend = functions.https.onCall(wrap((d, c, ip) => core.applySend(d, c, ip)));
+exports.kccApplyList = functions.https.onCall(wrap((d, c) => core.applyList(d, c)));
+exports.kccApplyAct = functions.https.onCall(wrap((d, c) => core.applyAct(d, c)));
 exports.kccHasSecret = functions.https.onCall(wrap((d, c) => core.hasSecret(d, c)));
 exports.kccYtLive = functions.https.onCall(wrap((d, c) => core.ytLive(d, c)));
 exports.kccSubmitRequest = functions.https.onCall(wrap((d, c, ip) => core.submitExternalRequest(d, c, ip)));

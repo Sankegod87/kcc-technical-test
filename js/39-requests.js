@@ -42,6 +42,7 @@
       (when?'<div class="rq-sub">'+when+'</div>':'')+
       (needs?'<div class="rq-chips">'+needs+'</div>':'')+
       (r.details?'<div class="rq-details">'+esc(r.details)+'</div>':'')+
+      (r.av&&KCC_EMAIL.avRows(r.av).length?'<div class="rq-av"><b>🎛 AV setup</b>'+KCC_EMAIL.avRows(r.av).map(x=>'<div><span>'+esc(x[0].replace('AV: ',''))+'</span> '+esc(x[1])+'</div>').join('')+'</div>':'')+
       (r.photos&&r.photos.length?'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'+r.photos.map(p=>'<img src="'+esc(safeImg(p))+'" onclick="viewPhotoLightbox(this.src)" style="width:48px;height:48px;object-fit:cover;border-radius:8px;cursor:pointer">').join('')+'</div>':'')+
       (assigned?'<div class="rq-sub">Assigned: <b>'+esc(assigned.name)+'</b></div>':'')+
       (r.adminNotes?'<div class="rq-sub" style="font-style:italic">Note: '+esc(r.adminNotes)+'</div>':'')+
@@ -93,7 +94,7 @@
   window.reqToSchedule=async function(id){
     if(!isAdmin()){ toast('Admin required','error'); return; }
     const r=(db.techRequests||[]).find(x=>x.id===id); if(!r||!r.neededBy){ toast('This request has no date','error'); return; }
-    const ev={id:'se_'+Date.now(),title:(r.requesterDept||'Request')+(r.eventType?' — '+r.eventType:''),type:'',date:r.neededBy,time:t12(r.startTime),endTime:t12(r.endTime),location:r.location||'',notes:(r.details||'').slice(0,400)+(r.requesterName?'\nRequested by '+r.requesterName+(r.requesterContact?' · '+r.requesterContact:''):''),rundown:'',crew:[],roles:{},createdAt:Date.now()};
+    const ev={id:'se_'+Date.now(),title:(r.requesterDept||'Request')+(r.eventType?' — '+r.eventType:''),type:'',date:r.neededBy,time:t12(r.startTime),endTime:t12(r.endTime),location:r.location||'',notes:((r.details||'')+(r.av?'\n\n'+KCC_EMAIL.avRows(r.av).map(x=>x[0].replace('AV: ','')+': '+x[1]).join('\n'):'')).slice(0,400)+(r.requesterName?'\nRequested by '+r.requesterName+(r.requesterContact?' · '+r.requesterContact:''):''),rundown:'',crew:[],roles:{},createdAt:Date.now()};
     (db.specialEvents=db.specialEvents||[]).push(ev); r.eventId=ev.id;
     mark(r,'progress','Added to the schedule'); save(); kccRenderRequests(); _updateReqBadge();
     toast('Added to the schedule. Assign crew in Schedule → special events.','success');

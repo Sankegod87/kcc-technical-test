@@ -43,7 +43,7 @@ const { FAKE } = require('./fake-modules.js');
     await p.exposeFunction('__tokenInfo', async t => tokens.get(t) || null);
     await p.exposeFunction('__call', async (name, data, auth) => {
       const a = JSON.parse(auth), d = JSON.parse(data), ctxo = a ? { auth: { uid: a.uid, token: a.claims } } : {};
-      const map = { kccLogin: () => core.login(d), kccBootstrap: () => core.bootstrap(d), kccTechOp: () => core.techOp(d, ctxo), kccConfirm: () => core.confirmSelf(d, ctxo), kccConfirmLink: () => core.confirmLink(d), kccLinks: () => core.makeLinks(d, ctxo), kccSetSecret: () => core.setSecret(d, ctxo), kccHasSecret: () => core.hasSecret(d, ctxo), kccNotesGet: () => core.notesGet(d, ctxo), kccNoteAdd: () => core.noteAdd(d, ctxo), kccNoteDel: () => core.noteDel(d, ctxo), kccFeedbackSend: () => core.feedbackSend(d, ctxo), kccFeedbackList: () => core.feedbackList(d, ctxo), kccFeedbackAct: () => core.feedbackAct(d, ctxo), kccYtLive: () => core.ytLive(d, ctxo), kccSubmitRequest: () => core.submitExternalRequest(d, ctxo, '5.5.5.' + (opts && opts.ip || 1)) };
+      const map = { kccLogin: () => core.login(d), kccBootstrap: () => core.bootstrap(d), kccTechOp: () => core.techOp(d, ctxo), kccConfirm: () => core.confirmSelf(d, ctxo), kccConfirmLink: () => core.confirmLink(d), kccLinks: () => core.makeLinks(d, ctxo), kccSetSecret: () => core.setSecret(d, ctxo), kccHasSecret: () => core.hasSecret(d, ctxo), kccNotesGet: () => core.notesGet(d, ctxo), kccNoteAdd: () => core.noteAdd(d, ctxo), kccNoteDel: () => core.noteDel(d, ctxo), kccFeedbackSend: () => core.feedbackSend(d, ctxo), kccFeedbackList: () => core.feedbackList(d, ctxo), kccFeedbackAct: () => core.feedbackAct(d, ctxo), kccApplySend: () => core.applySend(d, ctxo, 'ip'), kccApplyList: () => core.applyList(d, ctxo), kccApplyAct: () => core.applyAct(d, ctxo), kccYtLive: () => core.ytLive(d, ctxo), kccSubmitRequest: () => core.submitExternalRequest(d, ctxo, '5.5.5.' + (opts && opts.ip || 1)) };
       try { const r = await map[name](); setTimeout(notify, 5); return { data: r }; } catch (e) { return { error: { code: e.code || 'internal', message: e.message, details: e.details } }; }
     });
     await p.exposeFunction('__fsGet', async (pth, auth) => { const a = JSON.parse(auth); if (!canRead(pth, a)) return { error: 'permission-denied' }; const s = await F.fs.doc(pth).get(); return { exists: s.exists, data: s.data() }; });
@@ -180,6 +180,18 @@ const { FAKE } = require('./fake-modules.js');
   });
   assert.deepStrictEqual(au, { ok: 'ok', silent: 'silent', checking: 'checking', muted: 'muted', stale: 'unknown', parsed: 'ok:-14' });
   ok('vMix audio check: ok / silent / muted / stale / parsed from vMix');
+  // handheld scanner: a keyboard-wedge scanner types the code and presses Enter
+  const fxId = await p.evaluate(() => db.fixtures[0].id);
+  await p.evaluate(() => { go('scan'); }); await sleep(400);
+  assert.ok(await p.evaluate(() => document.activeElement && document.activeElement.id === 'manualId'), 'scan box is focused when the page opens');
+  await p.evaluate(() => document.activeElement.blur()); await p.keyboard.type(fxId.toLowerCase()); await p.keyboard.press('Enter'); await sleep(400);
+  assert.ok(await p.evaluate(() => document.getElementById('scanSheetWrap').classList.contains('open')), 'a scan opens the item sheet');
+  await p.evaluate(() => closeScanSheet()); await sleep(400);
+  assert.ok(await p.evaluate(() => document.activeElement.id === 'manualId'), 'scan box is ready again for the next scan');
+  await p.keyboard.type('NOPE-999'); await p.keyboard.press('Enter'); await sleep(300);
+  const log = await p.evaluate(() => document.getElementById('scan-recent').innerText);
+  assert.match(log, new RegExp(fxId, 'i')); assert.match(log, /NOPE-999/); assert.match(log, /Not found/);
+  ok('handheld scanner: scans without tapping, one at a time, with a recent-scans list');
   await pa.evaluate(() => { emailjs.send = async () => ({}); openM('addTech'); });
   for (const [id, v] of [['tn', 'Casey New'], ['tr', 'Camera op'], ['tem', 'casey@example.org'], ['tpw', 'casey-pass-1'], ['tpw2', 'casey-pass-1']]) await pa.fill('#' + id, v);
   await pa.evaluate(() => addTech()); await sleep(1200);
@@ -257,6 +269,37 @@ const { FAKE } = require('./fake-modules.js');
   assert.match(await pub.textContent('#extReq-status'), /draw your signature/); await pub.evaluate(() => erSigMode('typed')); await pub.evaluate(() => submitExternalRequest()); await sleep(900);
   assert.ok(docs('techRequests').some(r => r.requesterName === 'Renter' && r.requesterType === 'venue' && r.attendance === 120 && r.bookingRef === 'BK-9' && r.agreement && r.agreement.signerName === 'Renter Person' && r.agreement.method === 'typed'));
   assert.ok(await pub.isVisible('#er-save-copy')); await pub.evaluate(() => erSaveCopy()); const copyTxt = await pub.evaluate(() => document.getElementById('rq-agr').innerText); assert.match(copyTxt, /Renter Person/); assert.match(copyTxt, /Damage, loss and replacement fees/); assert.match(copyTxt, /text fingerprint/); await pub.evaluate(() => document.getElementById('rq-agr').remove()); ok('after sending, the renter can save or print a copy of the agreement'); ok('an outside group can book-request through the same form');
+  // event AV setup details (ministry request, no agreement needed)
+  await pub.evaluate(() => { resetExternalRequestForm(); });
+  await pub.evaluate(() => { document.getElementById('er-name').value = 'Av Tester'; document.getElementById('er-dept').value = 'Youth'; document.getElementById('er-email').value = 'av@example.com'; document.getElementById('er-details').value = 'Concert night';
+    const on = document.getElementById('er-av-on'); on.checked = true; on.dispatchEvent(new Event('change'));
+    document.getElementById('er-av-layout').value = 'Band or music'; document.getElementById('er-av-hand').value = '999'; document.getElementById('er-av-head').value = '2'; document.getElementById('er-av-loadin').value = '15:30'; document.getElementById('er-av-check').value = '17:00';
+    document.getElementById('er-av-dayname').value = 'Pat'; document.getElementById('er-av-dayphone').value = '555-0101'; document.getElementById('er-av-slides').checked = true; document.getElementById('er-av-notes').value = 'Two songs need a DI box';
+    try { localStorage.removeItem('kcc_ext_last'); } catch (e) {} return submitExternalRequest(); }); await sleep(900);
+  const avReq = (docs('techRequests') || []).find(r => r.requesterName === 'Av Tester');
+  assert.ok(avReq && avReq.av && avReq.av.handMics === 50 && avReq.av.headMics === 2 && avReq.av.loadIn === '15:30' && avReq.av.slides === true && avReq.av.layout === 'Band or music' && avReq.av.dayName === 'Pat', 'AV setup details are saved and cleaned');
+  await notify(); await sleep(700); await pa.evaluate(() => { go('requests'); reqFilter('all'); }); await sleep(600);
+  const rqTxt = await pa.evaluate(() => document.getElementById('req-list').innerText);
+  assert.match(rqTxt, /AV setup/); assert.match(rqTxt, /Two songs need a DI box/); assert.match(rqTxt, /3:30 PM/);
+  ok('event AV setup: saved on the request, cleaned by the server, shown in the inbox');
+  // volunteer sign-up (public form -> private store -> admin list)
+  await pub.evaluate(() => { showVolunteerScreen(); document.getElementById('vol-name').value = 'Vera Volunteer'; document.getElementById('vol-email').value = 'vera@example.com'; document.getElementById('vol-phone').value = '403-555-0100'; document.querySelector('#vol-stations input[value="Sound"]').checked = true; document.getElementById('vol-why').value = '<b>help</b>'; });
+  await pub.evaluate(() => submitVolunteer()); await sleep(900);
+  assert.ok(await pub.isVisible('#vol-success')); assert.match(await pub.textContent('#vol-ref'), /V[A-Z0-9]{6}/);
+  const volShared = JSON.stringify([...F.store.entries()].filter(([k]) => k.startsWith('data/')));
+  assert.ok(!/Vera Volunteer/.test(volShared), 'sign-ups are not in shared data');
+  const volList = await pa.evaluate(() => window._kccApplyList()); const vl = (volList.data || volList); assert.ok(vl.items.some(x => x.name === 'Vera Volunteer' && x.stations.includes('Sound')) && vl.open >= 1);
+  const volDenied = await pub.evaluate(async () => { try { await window._kccApplyList(); return 'read'; } catch (e) { return 'denied'; } }); assert.strictEqual(volDenied, 'denied');
+  await pa.evaluate(async () => { const r = await window._kccApplyList(); const it = (r.data || r).items[0]; await window._kccApplyAct({ op: 'status', id: it.id, status: 'contacted' }); });
+  assert.strictEqual((await pa.evaluate(() => window._kccApplyList())).items.find(x => x.name === 'Vera Volunteer').status, 'contacted');
+  ok('volunteer sign-up: public form saves privately, only admins can list and update it');
+  // purchase requests (crew ask, admin decides)
+  await pa.evaluate(() => { go('inventory'); document.getElementById('pr-item').value = 'XLR cables <i>10ft</i>'; document.getElementById('pr-qty').value = '4'; document.getElementById('pr-price').value = '12.5'; document.getElementById('pr-urgent').checked = true; prSubmit(); }); await sleep(500);
+  assert.ok(await pa.evaluate(() => db.purchaseRequests.some(r => r.qty === 4 && r.price === 12.5 && r.urgent && r.status === 'pending')));
+  assert.ok(!/<i>/.test(await pa.evaluate(() => document.getElementById('pr-panel').innerHTML)), 'request text is escaped');
+  await pa.evaluate(() => prAct(db.purchaseRequests[0].id, 'approved')); await sleep(400);
+  assert.strictEqual(await pa.evaluate(() => db.purchaseRequests[0].status), 'approved'); assert.match(await pa.evaluate(() => document.getElementById('pr-panel').innerText), /Mark ordered/i);
+  ok('purchase requests: crew can ask, admin approves, text is escaped');
   await notify(); await sleep(700); await pa.evaluate(() => { go('requests'); reqFilter('venue'); }); await sleep(500);
   const venueTxt = await pa.evaluate(() => document.getElementById('req-list').innerText); assert.match(venueTxt, /Signed/); assert.match(venueTxt, /Venue booking/);
   const rrid = docs('techRequests').find(r => r.requesterName === 'Renter').id; await pa.evaluate(id => reqAgreement(id), rrid);

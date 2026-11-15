@@ -378,6 +378,59 @@ function makeCore(deps) {
     });
   }
 
+  // ── Volunteer sign-ups: public form -> private/applications (admins only, through these functions). ──
+  const VOL_STATIONS = ['Camera', 'Sound', 'Lights', 'Presentation', 'Streaming', 'Not sure yet'];
+  async function applySend(data, ctx, ip) {
+    const d = data || {};
+    const name = str(d.name, 80).trim(), email = str(d.email, 120).trim(), phone = str(d.phone, 40).trim();
+    if (name.length < 2) throw new Fail('invalid-argument', 'Please tell us your name.');
+    if (!emailOk(email)) throw new Fail('invalid-argument', 'Please give an email address we can reach you on.');
+    if (phone.replace(/\D/g, '').length < 7) throw new Fail('invalid-argument', 'Please give a phone number we can reach you on.');
+    const stations = (Array.isArray(d.stations) ? d.stations : []).filter(x => VOL_STATIONS.indexOf(x) >= 0).slice(0, 6);
+    const experience = str(d.experience, 1000).trim(), availability = str(d.availability, 500).trim(), why = str(d.why, 1000).trim();
+    const ipKey = 'ip_' + crypto.createHash('sha256').update('vol|' + String(ip || 'unknown')).digest('hex').slice(0, 24);
+    const item = await fs.runTransaction(async tx => {
+      const t = now(), lref = fs.doc('rl/' + ipKey), ls = await tx.get(lref);
+      const l = ls.exists ? ls.data() : { start: t, n: 0 };
+      if (t - l.start > 3600000) { l.start = t; l.n = 0; }
+      if (l.n >= 3) throw new Fail('resource-exhausted', 'Please wait a while before sending another sign-up.');
+      l.n++;
+      const ref = fs.doc('private/applications'), s = await tx.get(ref), items = s.exists ? (s.data().items || []) : [];
+      if (items.filter(i => i.status === 'new').length >= 100) throw new Fail('resource-exhausted', 'We have a lot of sign-ups waiting. Please contact the tech team directly.');
+      const it = { id: 'vol_' + t + rand().slice(0, 3), ref: 'V' + String(t).slice(-6), name, email, phone, stations, experience, availability, why, status: 'new', createdAt: t };
+      tx.set(lref, l); tx.set(ref, { items: [it].concat(items).slice(0, 300) });
+      return it;
+    });
+    if (deps.mail) {
+      try {
+        const snap = await fs.doc('data/technicians').get();
+        const techs = snap && snap.exists ? JSON.parse(snap.data().p || '[]') : [];
+        const admins = techs.filter(x => x.active !== false && x.email && emailOk(x.email) && (x.userRole === 'admin' || x.userRole === 'master'));
+        const rows = [['Name', name], ['Email', email], ['Phone', phone], ['Interested in', stations.join(', ')], ['Availability', availability], ['Experience', experience]].filter(r => r[1]);
+        await Promise.all(admins.map(a => Promise.resolve(deps.mail({ kind: 'notice', to: a.email, name: a.name, subject: 'New volunteer sign-up: ' + name, notice: { tone: 'blue', badge: 'Volunteer sign-up', headline: name + ' wants to join the tech team', rows, body: why } })).catch(() => {})));
+        await Promise.resolve(deps.mail({ kind: 'notice', to: email, name, subject: 'Thanks for signing up to volunteer with KCC Technical', notice: { tone: 'green', badge: 'Sign-up received', headline: 'Thank you, ' + name.split(' ')[0] + '!', body: 'We received your volunteer sign-up and someone from the tech team will be in touch soon. Your reference is ' + item.ref + '.' } })).catch(() => {});
+      } catch (e) { /* ignore */ }
+    }
+    return { ok: true, ref: item.ref };
+  }
+  async function applyList(data, ctx) {
+    const c = callerOf(ctx); needAdmin(c);
+    const s = await fs.doc('private/applications').get(), items = s.exists ? (s.data().items || []) : [];
+    return { items, open: items.filter(i => i.status === 'new').length };
+  }
+  async function applyAct(data, ctx) {
+    const c = callerOf(ctx); needAdmin(c);
+    const op = data && data.op, id = String((data && data.id) || '');
+    return fs.runTransaction(async tx => {
+      const ref = fs.doc('private/applications'), s = await tx.get(ref); let items = s.exists ? (s.data().items || []) : [];
+      const it = items.find(i => i.id === id);
+      if (op === 'status') { if (!it) throw new Fail('not-found', 'That sign-up no longer exists'); if (['new', 'contacted', 'converted', 'declined'].indexOf(data.status) < 0) throw new Fail('invalid-argument', 'Unknown status'); it.status = data.status; }
+      else if (op === 'delete') items = items.filter(i => i.id !== id);
+      else throw new Fail('invalid-argument', 'Unknown action');
+      tx.set(ref, { items }); return { ok: true, open: items.filter(i => i.status === 'new').length };
+    });
+  }
+
   // ── YouTube status (key stays on the server) ──
   let ytCache = { at: 0, v: null };
   async function ytLive(data, ctx) {
@@ -436,6 +489,13 @@ function makeCore(deps) {
     }
     let attendance = null; if (d.attendance != null) { attendance = Math.round(Number(d.attendance)); if (!isFinite(attendance) || attendance < 0 || attendance > 5000) attendance = null; }
     const startTime = hhmm(d.startTime), endTime = hhmm(d.endTime);
+    // Optional AV setup details for bigger events. Every field is cleaned and length-limited.
+    let av = null;
+    if (d.av && typeof d.av === 'object') {
+      const a = d.av, cnt = v => { const n = Math.round(Number(v)); return isFinite(n) && n > 0 ? Math.min(n, 50) : 0; };
+      av = { layout: str(a.layout, 60).trim(), lighting: str(a.lighting, 60).trim(), handMics: cnt(a.handMics), headMics: cnt(a.headMics), loadIn: hhmm(a.loadIn), soundCheck: hhmm(a.soundCheck), tearDown: hhmm(a.tearDown),
+        dayName: str(a.dayName, 80).trim(), dayPhone: str(a.dayPhone, 40).trim(), slides: a.slides === true, playback: a.playback === true, band: a.band === true, laptop: a.laptop === true, notes: str(a.notes, 1000).trim() };
+    }
     if (!name || !dept) throw new Fail('invalid-argument', 'Name and ministry/department are required.');
     if (!details) throw new Fail('invalid-argument', 'Please describe what you need.');
     const cats = (Array.isArray(d.cats) ? d.cats : []).slice(0, 12).map(x => str(x, 40)).filter(Boolean);
@@ -462,6 +522,7 @@ function makeCore(deps) {
       source: 'external', requesterName: name, requesterDept: dept, requesterContact: contact, photos,
       requesterEmail: email, eventType, startTime, endTime, location, requesterType, attendance, bookingRef, ref: ('R' + String(t).slice(-6)), history: [{ t, what: 'Submitted' }]
     };
+    if (av) req.av = av;
     if (signed) { signed.signedAt = t; signed.ipHash = ipKey.slice(3); req.agreement = signed; req.history.push({ t, what: 'Agreement signed', by: signed.signerName }); }
     await fs.runTransaction(async tx => {
       const list = await readData(tx, 'techRequests', []);
@@ -483,7 +544,7 @@ function makeCore(deps) {
     return { ok: true, ref: req.ref, signedAt: req.agreement ? req.agreement.signedAt : null, hash: req.agreement ? req.agreement.hash : null };
   }
 
-  return { login, bootstrap, confirmSelf, confirmLink, makeLinks, linkSig, techOp, setSecret, hasSecret, notesGet, noteAdd, noteDel, feedbackSend, feedbackList, feedbackAct, ytLive, submitExternalRequest, Fail, scryptHash, pwMatches, writeRoster, readData, writeData };
+  return { login, bootstrap, confirmSelf, confirmLink, makeLinks, linkSig, techOp, setSecret, hasSecret, notesGet, noteAdd, noteDel, feedbackSend, feedbackList, feedbackAct, applySend, applyList, applyAct, ytLive, submitExternalRequest, Fail, scryptHash, pwMatches, writeRoster, readData, writeData };
 }
 
 module.exports = { makeCore, Fail, scryptHash, pwMatches, legacyHash, MIN_PW };

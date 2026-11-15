@@ -661,6 +661,7 @@ function resetExternalRequestForm(){
   if(typeof erWho==='function')erWho('ministry');
   window._erLast=null;{const sb=document.getElementById('er-save-copy');if(sb)sb.style.display='none';}
   ['er-agree','er-auth'].forEach(id=>{const el=document.getElementById(id);if(el)el.checked=false;});
+  {const on=document.getElementById('er-av-on');if(on){on.checked=false;document.getElementById('er-av-body').style.display='none';document.querySelectorAll('#er-av-body input,#er-av-body select,#er-av-body textarea').forEach(el=>{if(el.type==='checkbox')el.checked=false;else el.value='';});}}
   if(typeof erSigClear==='function'){erSigClear(true);erSigMode('typed');erSigPreview();}
   document.getElementById('extReq-form').style.display='';
   document.getElementById('extReq-success').style.display='none';
@@ -707,7 +708,10 @@ async function submitExternalRequest(){
     const requesterType=window._erWho==='venue'?'venue':'ministry';
     const attendance=requesterType==='venue'?(parseInt(document.getElementById('er-attendance').value,10)||null):null;
     const bookingRef=requesterType==='venue'?(document.getElementById('er-bookingref').value||'').trim():'';
-    const res=await window._kccSubmitRequest({name,dept,contact,email,details,cats,eventType,startTime,endTime,location,requesterType,attendance,bookingRef,agreement,
+    const g=id=>document.getElementById(id), av=g('er-av-on')&&g('er-av-on').checked?{layout:g('er-av-layout').value,lighting:g('er-av-lighting').value,
+      handMics:parseInt(g('er-av-hand').value,10)||0,headMics:parseInt(g('er-av-head').value,10)||0,loadIn:g('er-av-loadin').value,soundCheck:g('er-av-check').value,tearDown:g('er-av-tear').value,
+      dayName:g('er-av-dayname').value.trim(),dayPhone:g('er-av-dayphone').value.trim(),slides:g('er-av-slides').checked,playback:g('er-av-playback').checked,band:g('er-av-band').checked,laptop:g('er-av-tv').checked,notes:g('er-av-notes').value.trim()}:null;
+    const res=await window._kccSubmitRequest({name,dept,contact,email,details,cats,eventType,startTime,endTime,location,requesterType,attendance,bookingRef,agreement,av,
       neededBy:dateVal?new Date(dateVal+'T12:00:00').getTime():null,
       photos:_erMediaList.slice(0,3).filter(safeImg)});
     try{localStorage.setItem('kcc_ext_last',String(Date.now()));}catch(e){}

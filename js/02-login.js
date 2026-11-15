@@ -11,6 +11,7 @@ window.addEventListener('syncStatus',e=>{const{state,msg}=e.detail;setSyncState(
 let _lsSelectedId = null;
 
 function showLoginScreen(){
+  if(location.hash==='#volunteer'){ if(typeof showVolunteerScreen==='function') showVolunteerScreen(); return; }
   if(location.hash==='#request'||location.hash==='#external-request'){ if(typeof showExternalRequestScreen==='function') showExternalRequestScreen(); return; }
   const screen = document.getElementById('loginScreen');
   screen.style.display = 'flex';
