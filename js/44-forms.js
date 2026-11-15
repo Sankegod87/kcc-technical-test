@@ -2,7 +2,7 @@
 (function(){
   const base=()=>location.origin+location.pathname;
   const FORMS=[
-    {icon:'🛠️',t:'Tech support request',d:'For ministries, groups and renters who need AV help. Includes the optional AV setup details for bigger events.',pub:'#request',admin:false},
+    {icon:'🛠️',t:'Tech support request',d:'For ministries, groups and renters who need AV help.',pub:'#request',admin:false},
     {icon:'🙋',t:'Volunteer sign-up',d:'For people who want to join the tech team. Sign-ups come to the Crew page.',pub:'#volunteer',admin:false,review:'volReview'},
     {icon:'🛒',t:'Purchase request',d:'Ask for a cable, bulb, battery or anything else we need to buy. Admins approve it.',go:'purchase'},
     {icon:'📅',t:'Time off / away dates',d:'Mark the dates you are away so you are not scheduled.',go:'timeoff'},

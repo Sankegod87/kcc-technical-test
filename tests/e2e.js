@@ -269,19 +269,6 @@ const { FAKE } = require('./fake-modules.js');
   assert.match(await pub.textContent('#extReq-status'), /draw your signature/); await pub.evaluate(() => erSigMode('typed')); await pub.evaluate(() => submitExternalRequest()); await sleep(900);
   assert.ok(docs('techRequests').some(r => r.requesterName === 'Renter' && r.requesterType === 'venue' && r.attendance === 120 && r.bookingRef === 'BK-9' && r.agreement && r.agreement.signerName === 'Renter Person' && r.agreement.method === 'typed'));
   assert.ok(await pub.isVisible('#er-save-copy')); await pub.evaluate(() => erSaveCopy()); const copyTxt = await pub.evaluate(() => document.getElementById('rq-agr').innerText); assert.match(copyTxt, /Renter Person/); assert.match(copyTxt, /Damage, loss and replacement fees/); assert.match(copyTxt, /text fingerprint/); await pub.evaluate(() => document.getElementById('rq-agr').remove()); ok('after sending, the renter can save or print a copy of the agreement'); ok('an outside group can book-request through the same form');
-  // event AV setup details (ministry request, no agreement needed)
-  await pub.evaluate(() => { resetExternalRequestForm(); });
-  await pub.evaluate(() => { document.getElementById('er-name').value = 'Av Tester'; document.getElementById('er-dept').value = 'Youth'; document.getElementById('er-email').value = 'av@example.com'; document.getElementById('er-details').value = 'Concert night';
-    const on = document.getElementById('er-av-on'); on.checked = true; on.dispatchEvent(new Event('change'));
-    document.getElementById('er-av-layout').value = 'Band or music'; document.getElementById('er-av-hand').value = '999'; document.getElementById('er-av-head').value = '2'; document.getElementById('er-av-loadin').value = '15:30'; document.getElementById('er-av-check').value = '17:00';
-    document.getElementById('er-av-dayname').value = 'Pat'; document.getElementById('er-av-dayphone').value = '555-0101'; document.getElementById('er-av-slides').checked = true; document.getElementById('er-av-notes').value = 'Two songs need a DI box';
-    try { localStorage.removeItem('kcc_ext_last'); } catch (e) {} return submitExternalRequest(); }); await sleep(900);
-  const avReq = (docs('techRequests') || []).find(r => r.requesterName === 'Av Tester');
-  assert.ok(avReq && avReq.av && avReq.av.handMics === 50 && avReq.av.headMics === 2 && avReq.av.loadIn === '15:30' && avReq.av.slides === true && avReq.av.layout === 'Band or music' && avReq.av.dayName === 'Pat', 'AV setup details are saved and cleaned');
-  await notify(); await sleep(700); await pa.evaluate(() => { go('requests'); reqFilter('all'); }); await sleep(600);
-  const rqTxt = await pa.evaluate(() => document.getElementById('req-list').innerText);
-  assert.match(rqTxt, /AV setup/); assert.match(rqTxt, /Two songs need a DI box/); assert.match(rqTxt, /3:30 PM/);
-  ok('event AV setup: saved on the request, cleaned by the server, shown in the inbox');
   // volunteer sign-up (public form -> private store -> admin list)
   await pub.evaluate(() => { showVolunteerScreen(); document.getElementById('vol-name').value = 'Vera Volunteer'; document.getElementById('vol-email').value = 'vera@example.com'; document.getElementById('vol-phone').value = '403-555-0100'; document.querySelector('#vol-stations input[value="Sound"]').checked = true; document.getElementById('vol-why').value = '<b>help</b>'; });
   await pub.evaluate(() => submitVolunteer()); await sleep(900);

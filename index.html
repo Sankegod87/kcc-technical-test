@@ -487,31 +487,6 @@ initFirebase();
         </div>
       </div>
 
-      <div class="er2-card" id="er-av-card">
-        <label class="er2-checkrow" style="margin:0"><input type="checkbox" id="er-av-on" onchange="document.getElementById('er-av-body').style.display=this.checked?'':'none'"> <span><b>This is a bigger event</b> (conference, wedding, concert, panel). Add AV setup details.</span></label>
-        <div id="er-av-body" style="display:none;margin-top:14px">
-          <div class="er2-grid">
-            <div class="er2-f"><label for="er-av-layout">Stage layout</label>
-              <select id="er-av-layout"><option value="">Choose one</option><option>Podium / one speaker</option><option>Band or music</option><option>Panel discussion</option><option>Choir</option><option>Ceremony (wedding, funeral)</option><option>Presentation / slides only</option><option>Other</option></select></div>
-            <div class="er2-f"><label for="er-av-lighting">Lighting</label>
-              <select id="er-av-lighting"><option value="">Choose one</option><option>Normal house lights</option><option>Stage lights on the speaker</option><option>Full stage looks</option><option>Special effects (haze, colours)</option></select></div>
-            <div class="er2-f"><label for="er-av-hand">Handheld mics</label><input id="er-av-hand" type="number" min="0" max="50" inputmode="numeric" placeholder="0"></div>
-            <div class="er2-f"><label for="er-av-head">Headset / lapel mics</label><input id="er-av-head" type="number" min="0" max="50" inputmode="numeric" placeholder="0"></div>
-            <div class="er2-f"><label for="er-av-loadin">Setup / load-in from</label><input id="er-av-loadin" type="time"></div>
-            <div class="er2-f"><label for="er-av-check">Sound check at</label><input id="er-av-check" type="time"></div>
-            <div class="er2-f"><label for="er-av-tear">Finished and out by</label><input id="er-av-tear" type="time"></div>
-            <div class="er2-f"><label for="er-av-dayname">Contact on the day</label><input id="er-av-dayname" maxlength="80" placeholder="Name"></div>
-            <div class="er2-f"><label for="er-av-dayphone">Their phone</label><input id="er-av-dayphone" maxlength="40" placeholder="Phone" inputmode="tel"></div>
-          </div>
-          <div class="er2-chips" style="margin-top:12px">
-            <label class="er-cat-chip"><input type="checkbox" id="er-av-slides"> 📊 Slides / projector</label>
-            <label class="er-cat-chip"><input type="checkbox" id="er-av-playback"> 🎵 Music or video playback</label>
-            <label class="er-cat-chip"><input type="checkbox" id="er-av-band"> 🎸 Band instruments / DI boxes</label>
-            <label class="er-cat-chip"><input type="checkbox" id="er-av-tv"> 📺 Own laptop / needs HDMI</label>
-          </div>
-          <div class="er2-f" style="margin-top:12px"><label for="er-av-notes">Anything else (running order, special cues, power needs)</label><textarea id="er-av-notes" maxlength="1000" rows="3"></textarea></div>
-        </div>
-      </div>
 
       <div class="er2-card venue-only" id="er-agreement" style="display:none">
         <div class="er2-step"><span>4</span> Venue use &amp; equipment agreement</div>
