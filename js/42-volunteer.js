@@ -80,7 +80,8 @@
         if(bar&&isAdmin()&&!document.getElementById('vol-btn')){
           const b=document.createElement('button'); b.id='vol-btn'; b.className='btn bgh'; b.style.marginRight='8px'; b.textContent='🙋 Volunteer sign-ups'; b.onclick=volOpen;
           const add=bar.querySelector('button.ba'); const wrap=document.createElement('div'); wrap.className='row gap8';
-          bar.insertBefore(wrap,add); wrap.appendChild(b); wrap.appendChild(add);
+          bar.insertBefore(wrap,add); const lk=document.createElement('button'); lk.id='vol-link'; lk.className='btn bgh'; lk.textContent='🔗 Copy volunteer link'; lk.onclick=volCopyLink;
+          wrap.appendChild(lk); wrap.appendChild(b); wrap.appendChild(add);
         }
         badge();
       }catch(e){}
