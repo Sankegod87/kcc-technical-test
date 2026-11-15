@@ -3,7 +3,7 @@ const _PAGE_TITLES = {
   dashboard:'Control Room',sunday:'Service Day',fixtures:'Fixtures',inventory:'Stock',history:'History',
   scan:'Scan',crew:'Crew',schedule:'Schedule',nfc:'NFC',
   checklist:'Checklist',settings:'Settings',
-  checkout:'Asset Checkout',maintenance:'Maintenance Log',requests:'Tech Requests',announcements:'Announcements',training:'Training Hub',profiles:'Crew Profiles'
+  checkout:'Asset Checkout',maintenance:'Maintenance Log',requests:'Tech Requests',announcements:'Announcements',training:'Training Hub',profiles:'Crew Profiles',forms:'Forms'
 };
 const _origGo = typeof go !== 'undefined' ? go : null;
 window.go = function(page) {

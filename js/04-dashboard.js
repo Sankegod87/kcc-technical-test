@@ -8,7 +8,7 @@ function go(page){
   stopCamera();stopGsScanner&&stopGsScanner();
   if(page!=='sunday'&&window._sdTimer){clearInterval(window._sdTimer);window._sdTimer=null;}
   closeMoreNav&&closeMoreNav();
-  ['dashboard','sunday','fixtures','inventory','history','scan','crew','settings','schedule','checklist','nfc','checkout','maintenance','requests','announcements','training','profiles','feedbackadmin','auditlog'].forEach(p=>{
+  ['dashboard','sunday','fixtures','inventory','history','scan','crew','settings','schedule','checklist','nfc','checkout','maintenance','requests','announcements','training','profiles','feedbackadmin','auditlog','forms'].forEach(p=>{
     const el=document.getElementById('pg-'+p);if(el)el.style.display=p===page?'':'none';
     document.getElementById('nav-'+p)?.classList.toggle('active',p===page);
   });
