@@ -161,6 +161,25 @@ const { FAKE } = require('./fake-modules.js');
   const look = await pa.evaluate(() => ({ amber: getComputedStyle(document.body).getPropertyValue('--amber').trim(), tab: (document.querySelector('.snav-btn.active') ? getComputedStyle(document.querySelector('.snav-btn.active')).color : '') }));
   assert.strictEqual(look.amber, '#c2410c'); assert.strictEqual(look.tab, 'rgb(194, 65, 12)');
   ok('accent colour really changes the app');
+  // vMix audio check
+  const au = await pa.evaluate(async () => {
+    const t0 = 1000000, E = vmAudioEval, hist = (vals, step) => vals.map((v, i) => ({ t: t0 + i * step, v }));
+    const r = {};
+    r.ok = E(hist([0, 0.2, 0.01], 5000), false, t0 + 10000).state;
+    r.silent = E(hist([0, 0, 0, 0, 0], 5000), false, t0 + 20000).state;
+    r.checking = E(hist([0, 0], 5000), false, t0 + 5000).state;
+    r.muted = E(hist([0.3], 5000), true, t0).state;
+    r.stale = E([{ t: t0, v: 0.5 }], false, t0 + 60000).state;
+    // parse a real-shaped vMix reply through vmPoll
+    db.settings.vmixHost = '10.0.0.5:8088';
+    const xml = '<vmix><version>27</version><streaming>True</streaming><recording>False</recording><active>1</active><preview>2</preview><inputs><input number="1" title="Cam">a</input><input number="2" title="Slides">b</input></inputs><audio><master volume="100" muted="False" meterF1="0.21" meterF2="0.18"/></audio></vmix>';
+    window.fetch = async () => ({ ok: true, text: async () => xml });
+    await vmPoll();
+    r.parsed = window._vm.audio.state + ':' + window._vm.audio.db;
+    return r;
+  });
+  assert.deepStrictEqual(au, { ok: 'ok', silent: 'silent', checking: 'checking', muted: 'muted', stale: 'unknown', parsed: 'ok:-14' });
+  ok('vMix audio check: ok / silent / muted / stale / parsed from vMix');
   await pa.evaluate(() => { emailjs.send = async () => ({}); openM('addTech'); });
   for (const [id, v] of [['tn', 'Casey New'], ['tr', 'Camera op'], ['tem', 'casey@example.org'], ['tpw', 'casey-pass-1'], ['tpw2', 'casey-pass-1']]) await pa.fill('#' + id, v);
   await pa.evaluate(() => addTech()); await sleep(1200);

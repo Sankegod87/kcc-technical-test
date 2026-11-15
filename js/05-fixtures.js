@@ -61,7 +61,7 @@ function renderFix(){
     const bulbLabel=reg?`<span class="mono" style="color:var(--amber);font-size:11px;font-weight:700">${esc(reg.bulbId)}</span><span class="dim" style="margin-left:6px">since ${ago(reg.installedAt)}</span>`
       :'<span class="dim">No bulb scanned</span>';
     const cardClass='fix-card'+(isOut?' status-out':' status-ok')+(isMaint?' status-maint':'');
-    const catColors={wash:'#0F6E56',spot:'#534AB7',par:'#854F0B',fresnel:'#185FA5',led:'#3B6D11',follow:'#A32D2D',other:'#888'};
+    const catColors={wash:'#0F6E56',spot:'#534AB7',par:'#854F0B',fresnel:'#185FA5',led:'#3B6D11',follow:'#A32D2D',projector:'#B8860B',other:'#888'};
     const catColor=catColors[f.category||'other']||'#888';
     return`<div class="${cardClass}">
       <div class="fix-card-head">

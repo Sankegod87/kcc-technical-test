@@ -76,7 +76,7 @@
       // Main dot
       svgEl('circle',{cx:0,cy:0,r:11,fill:col,stroke:'#fff','stroke-width':2},g);
       // Icon
-      const icons={wash:'⬤',spot:'★',par:'◆',fresnel:'◉',led:'✦',follow:'◎',other:'●'};
+      const icons={wash:'⬤',spot:'★',par:'◆',fresnel:'◉',led:'✦',follow:'◎',projector:'▣',other:'●'};
       const ic=svgEl('text',{x:0,y:4,'text-anchor':'middle','font-size':9,fill:'#fff','font-weight':700,'pointer-events':'none'},g);
       ic.textContent=f.id.slice(0,3);
       // Label below

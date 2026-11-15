@@ -21,6 +21,9 @@ function glChecks(){
   const v=window._vm||{state:'unset'};
   out.push(v.state==='unset'?{k:'vMix',s:'skip',t:'Not set up'}:v.state==='error'?{k:'vMix',s:'bad',t:"Can't reach vMix"}
     :{k:'vMix',s:'ok',t:v.streaming?'Streaming':'Connected, not streaming yet'});
+  if(v.state==='ok'&&v.audio&&v.audio.state!=='nodata'){ const a=v.audio.state;
+    out.push(a==='ok'?{k:'Stream audio',s:'ok',t:'Audio present ('+v.audio.db+' dB)'}:a==='muted'?{k:'Stream audio',s:'bad',t:'vMix master is muted'}
+      :a==='silent'?{k:'Stream audio',s:v.streaming?'bad':'warn',t:'No audio detected'}:{k:'Stream audio',s:'skip',t:'Checking…'}); }
   const p=window._pp||{state:'unset'};
   out.push(p.state==='unset'?{k:'ProPresenter',s:'skip',t:'Not set up'}:p.state==='error'?{k:'ProPresenter',s:'bad',t:"Can't reach ProPresenter"}
     :p.pres?{k:'ProPresenter',s:'ok',t:p.pres}:{k:'ProPresenter',s:'warn',t:'Connected, no presentation open'});
