@@ -8,6 +8,7 @@
     {icon:'📅',t:'Time off / away dates',d:'Mark the dates you are away so you are not scheduled.',go:'timeoff'},
     {icon:'↔️',t:'Shift swap',d:'Ask another crew member to take your shift. Open a service on the Schedule page and tap Request Swap.',go:'swap'},
     {icon:'⚠️',t:'Damage / incident report',d:'Report broken or damaged gear. Open the item on the Asset Checkout page and tap the warning button.',go:'incident'},
+    {icon:'🧭',t:'Pre-event site walk',d:'Walk the room before a big event and check power, audio, video, lights, stream and safety. Admins only.',go:'sitewalk',admin:true},
     {icon:'💬',t:'Anonymous feedback',d:'Share a thought without your name on it.',go:'feedback'}
   ];
   const E=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -21,13 +22,14 @@
     else if(k==='timeoff'){ go('crew'); setTimeout(()=>{ const p=document.getElementById('availPanel'); if(p) p.scrollIntoView({behavior:'smooth',block:'start'}); },200); }
     else if(k==='swap') go('schedule');
     else if(k==='incident') go('checkout');
+    else if(k==='sitewalk') swOpenList();
     else if(k==='feedback'){ if(typeof feedbackNav==='function') feedbackNav(); }
     else if(k==='volReview'){ go('crew'); setTimeout(()=>{ if(typeof volOpen==='function') volOpen(); },250); }
   };
   window.renderForms=function(){
     const el=document.getElementById('pg-forms'); if(!el) return; const adm=isAdmin();
     el.innerHTML='<div class="row jbet mb16"><div><h2 class="fw9 tu ls2" style="font-size:14px">Forms</h2><div class="dim" style="margin-top:3px">Every form in one place. Links marked Public can be shared with people outside the team.</div></div></div>'+
-      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px">'+FORMS.map(f=>{
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px">'+FORMS.filter(f=>!f.admin||adm).map(f=>{
         const btns=f.pub
           ?'<button class="btn ba bsm" onclick="formsOpenPublic(\''+f.pub+'\')">Open form</button><button class="btn bgh bsm" data-perm="admin" onclick="formsCopy(\''+f.pub+'\')">🔗 Copy link</button>'+(adm&&f.review?'<button class="btn bgh bsm" onclick="formsGo(\''+f.review+'\')">View sign-ups</button>':'')
           :'<button class="btn ba bsm" onclick="formsGo(\''+f.go+'\')">Open</button>';

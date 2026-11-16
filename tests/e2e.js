@@ -292,6 +292,13 @@ const { FAKE } = require('./fake-modules.js');
   const formsTxt = await pa.evaluate(() => document.getElementById('pg-forms').innerText); for (const w of ['Tech support request', 'Volunteer sign-up', 'Purchase request', 'Time off', 'Shift swap', 'incident report', 'Anonymous feedback']) assert.ok(new RegExp(w, 'i').test(formsTxt), 'forms page lists ' + w);
   assert.ok(await pa.isVisible('#pg-forms')); await pa.evaluate(() => formsGo('purchase')); await sleep(500); assert.ok(await pa.isVisible('#pr-form'));
   ok('forms page: lists every form and opens them');
+  // pre-event site walk
+  assert.match(await pa.evaluate(() => document.getElementById('pg-forms').innerText), /Pre-event site walk/);
+  await pa.evaluate(() => { swOpenList(); swNew(); swField('event', 'Youth <b>Night</b>'); swSet('pw1', 'ok'); swSet('au2', 'issue'); swNote('au2', 'Need AA batteries'); }); await sleep(500);
+  assert.ok(await pa.evaluate(() => db.siteWalks.length === 1 && db.siteWalks[0].items.pw1.s === 'ok' && db.siteWalks[0].items.au2.n === 'Need AA batteries'));
+  const swHtml = await pa.evaluate(() => document.getElementById('sw-modal').innerHTML); assert.ok(!/<b>Night/.test(swHtml), 'site walk text is escaped'); assert.match(await pa.evaluate(() => document.getElementById('sw-modal').innerText), /1 issue/);
+  await pa.evaluate(() => { swDone(); swList(); }); assert.match(await pa.evaluate(() => document.getElementById('sw-modal').innerText), /Complete/); await pa.evaluate(() => swClose());
+  ok('site walk: start, check items, note issues, complete');
   await notify(); await sleep(700); await pa.evaluate(() => { go('requests'); reqFilter('venue'); }); await sleep(500);
   const venueTxt = await pa.evaluate(() => document.getElementById('req-list').innerText); assert.match(venueTxt, /Signed/); assert.match(venueTxt, /Venue booking/);
   const rrid = docs('techRequests').find(r => r.requesterName === 'Renter').id; await pa.evaluate(id => reqAgreement(id), rrid);

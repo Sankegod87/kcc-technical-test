@@ -11,7 +11,7 @@
       'checklistState', 'shows', 'gearItems', 'checkouts', 'maintLogs', 'signoffs', 'feedbackItems',
       'incidentReports', 'swapRequests', 'auditLog', 'serviceNotes', 'techRequests', 'annState', 'purchaseRequests', 'settingsRt'],
     sched: ['schedules'],
-    admin: ['announcements', 'trainingModules', 'rehearsals', 'vendors', 'specialEvents', 'settings'],
+    admin: ['announcements', 'trainingModules', 'rehearsals', 'vendors', 'specialEvents', 'siteWalks', 'settings'],
     server: ['technicians']
   };
   // Settings values that any device may update (reminder bookkeeping, personal widget layout).
