@@ -8,6 +8,7 @@
     {icon:'📅',t:'Time off / away dates',d:'Mark the dates you are away so you are not scheduled.',go:'timeoff'},
     {icon:'↔️',t:'Shift swap',d:'Ask another crew member to take your shift. Open a service on the Schedule page and tap Request Swap.',go:'swap'},
     {icon:'⚠️',t:'Damage / incident report',d:'Report broken or damaged gear. Open the item on the Asset Checkout page and tap the warning button.',go:'incident'},
+    {icon:'✅',t:'Training sign-off request',d:'Finished a training module? Ask an admin to check you off.',go:'signoff'},
     {icon:'🧭',t:'Pre-event site walk',d:'Walk the room before a big event and check power, audio, video, lights, stream and safety. Admins only.',go:'sitewalk',admin:true},
     {icon:'💬',t:'Anonymous feedback',d:'Share a thought without your name on it.',go:'feedback'}
   ];
@@ -22,6 +23,7 @@
     else if(k==='timeoff'){ go('crew'); setTimeout(()=>{ const p=document.getElementById('availPanel'); if(p) p.scrollIntoView({behavior:'smooth',block:'start'}); },200); }
     else if(k==='swap') go('schedule');
     else if(k==='incident') go('checkout');
+    else if(k==='signoff'){ go('training'); setTimeout(()=>{ if(typeof soOpen==='function') soOpen(); },200); }
     else if(k==='sitewalk') swOpenList();
     else if(k==='feedback'){ if(typeof feedbackNav==='function') feedbackNav(); }
     else if(k==='volReview'){ go('crew'); setTimeout(()=>{ if(typeof volOpen==='function') volOpen(); },250); }

@@ -299,6 +299,14 @@ const { FAKE } = require('./fake-modules.js');
   const swHtml = await pa.evaluate(() => document.getElementById('sw-modal').innerHTML); assert.ok(!/<b>Night/.test(swHtml), 'site walk text is escaped'); assert.match(await pa.evaluate(() => document.getElementById('sw-modal').innerText), /1 issue/);
   await pa.evaluate(() => { swDone(); swList(); }); assert.match(await pa.evaluate(() => document.getElementById('sw-modal').innerText), /Complete/); await pa.evaluate(() => swClose());
   ok('site walk: start, check items, note issues, complete');
+  // training sign-off request
+  const so = await pa.evaluate(async () => { db.trainingModules = db.trainingModules || []; db.trainingModules.push({ id: 'm_so', title: 'Camera basics' }); const alex = db.technicians.find(t => t.name === 'Alex Kim'), m = db.trainingModules.find(x => !(alex.completedModules || []).includes(x.id));
+    db.signoffRequests.unshift({ id: 'so_t1', modId: m.id, modTitle: m.title, techId: alex.id, techName: alex.name, note: 'Done <i>it</i>', status: 'pending', createdAt: Date.now() }); save();
+    go('training'); soOpen(); const html = document.getElementById('so-modal').innerHTML; const own = { id: 'so_t2', modId: m.id, modTitle: m.title, techId: getCurTech().id, techName: 'me', status: 'pending', createdAt: Date.now() }; db.signoffRequests.push(own); await soAct('so_t2', 'approved');
+    const selfBlocked = db.signoffRequests.find(r => r.id === 'so_t2').status === 'pending'; await soAct('so_t1', 'approved'); soClose();
+    return { escaped: !/<i>it/.test(html), selfBlocked, status: db.signoffRequests.find(r => r.id === 'so_t1').status, done: (db.technicians.find(t => t.id === alex.id).completedModules || []).includes(m.id) }; });
+  assert.ok(so.escaped && so.selfBlocked && so.status === 'approved' && so.done, JSON.stringify(so));
+  ok('training sign-off: crew request, admin checks them off, cannot approve your own');
   await notify(); await sleep(700); await pa.evaluate(() => { go('requests'); reqFilter('venue'); }); await sleep(500);
   const venueTxt = await pa.evaluate(() => document.getElementById('req-list').innerText); assert.match(venueTxt, /Signed/); assert.match(venueTxt, /Venue booking/);
   const rrid = docs('techRequests').find(r => r.requesterName === 'Renter').id; await pa.evaluate(id => reqAgreement(id), rrid);

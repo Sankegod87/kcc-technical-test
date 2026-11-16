@@ -18,7 +18,7 @@ let _pinCallback=null, _pinEntry='';
 // ── Storage ──
 function lsave(){try{localStorage.setItem(LS_KEY,JSON.stringify(db));}catch(e){}}
 function lload(){
-  try{const s=localStorage.getItem(LS_KEY);if(s){const p=JSON.parse(s);db=Object.assign({fixtures:[],outages:[],inventory:[],orders:[],usageLog:[],technicians:[],settings:{},usedBulbs:[],bulbRegistry:[],schedules:{},availability:{},checklistState:{},shows:[]},p);if(!db.settings)db.settings={};if(!db.usedBulbs)db.usedBulbs=[];if(!db.bulbRegistry)db.bulbRegistry=[];if(!db.schedules)db.schedules={};if(!db.availability)db.availability={};if(!db.checklistState)db.checklistState={};if(!db.shows)db.shows=[];if(!db.gearItems)db.gearItems=[];if(!db.checkouts)db.checkouts=[];if(!db.maintLogs)db.maintLogs=[];if(!db.techRequests)db.techRequests=[];if(!db.announcements)db.announcements=[];if(!db.signoffs)db.signoffs={};if(!db.trainingModules)db.trainingModules=[];if(!db.feedbackItems)db.feedbackItems=[];if(!db.incidentReports)db.incidentReports=[];if(!db.rehearsals)db.rehearsals=[];if(!db.siteWalks)db.siteWalks=[];if(!db.purchaseRequests)db.purchaseRequests=[];if(!db.swapRequests)db.swapRequests=[];if(!db.auditLog)db.auditLog=[];if(!db.vendors)db.vendors=[];if(!db.specialEvents)db.specialEvents=[];if(!db.serviceNotes)db.serviceNotes=[];}}catch(e){}
+  try{const s=localStorage.getItem(LS_KEY);if(s){const p=JSON.parse(s);db=Object.assign({fixtures:[],outages:[],inventory:[],orders:[],usageLog:[],technicians:[],settings:{},usedBulbs:[],bulbRegistry:[],schedules:{},availability:{},checklistState:{},shows:[]},p);if(!db.settings)db.settings={};if(!db.usedBulbs)db.usedBulbs=[];if(!db.bulbRegistry)db.bulbRegistry=[];if(!db.schedules)db.schedules={};if(!db.availability)db.availability={};if(!db.checklistState)db.checklistState={};if(!db.shows)db.shows=[];if(!db.gearItems)db.gearItems=[];if(!db.checkouts)db.checkouts=[];if(!db.maintLogs)db.maintLogs=[];if(!db.techRequests)db.techRequests=[];if(!db.announcements)db.announcements=[];if(!db.signoffs)db.signoffs={};if(!db.trainingModules)db.trainingModules=[];if(!db.feedbackItems)db.feedbackItems=[];if(!db.incidentReports)db.incidentReports=[];if(!db.rehearsals)db.rehearsals=[];if(!db.siteWalks)db.siteWalks=[];if(!db.purchaseRequests)db.purchaseRequests=[];if(!db.signoffRequests)db.signoffRequests=[];if(!db.swapRequests)db.swapRequests=[];if(!db.auditLog)db.auditLog=[];if(!db.vendors)db.vendors=[];if(!db.specialEvents)db.specialEvents=[];if(!db.serviceNotes)db.serviceNotes=[];}}catch(e){}
 }
 window._onRemoteData=function(r){
   // Unsent edits on this device? Merge them with the cloud copy instead of losing them.
@@ -58,6 +58,7 @@ window._onRemoteData=function(r){
   db.specialEvents=r.specialEvents||db.specialEvents||[];
   db.swapRequests=r.swapRequests||db.swapRequests||[];
   db.purchaseRequests=r.purchaseRequests||db.purchaseRequests||[];
+  db.signoffRequests=r.signoffRequests||db.signoffRequests||[];
   db.auditLog=r.auditLog||db.auditLog||[];
   db.vendors=r.vendors||db.vendors||[];
   db.serviceNotes=r.serviceNotes||db.serviceNotes||[];
