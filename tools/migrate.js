@@ -2,6 +2,8 @@
 // One-time move from the old single document (stage-light-tracker/main) to the split layout.
 //   node tools/migrate.js            dry run: shows what would happen, writes nothing
 //   node tools/migrate.js --go       does it
+//   add --clean to also drop the known test entries (gear "twes", the "test" events, the rr/kk/nnnn requests, test announcements)
+//   add --file backup.json to dry-run from a backup file instead of the live document
 // Needs Google credentials with access to the project (run `gcloud auth application-default login`,
 // or set GOOGLE_APPLICATION_CREDENTIALS to a service-account key file), and GCLOUD_PROJECT=light-tracker-d708f.
 // The old document is NOT deleted. Delete it yourself once you have checked the app works.
@@ -15,6 +17,7 @@ function plan(old, opts) {
   const rand = opts.rand || (() => crypto.randomBytes(5).toString('hex'));
   const docs = {}, notes = [], temp = [], privNotes = {};
   const d = JSON.parse(JSON.stringify(old || {}));
+  if (opts.clean) { const rm = require('./clean-test-data.js').clean(d); notes.push('Test entries removed (--clean): ' + JSON.stringify(rm)); }
   const techs = Array.isArray(d.technicians) ? d.technicians : [];
   // accounts: hashes leave the shared data
   techs.forEach(t => {
@@ -65,7 +68,7 @@ if (require.main === module) {
     if (!snap.exists) { console.error('No old data document found at stage-light-tracker/main'); process.exit(1); }
     const existing = await db.doc('data/technicians').get();
     if (existing.exists && !process.argv.includes('--force')) { console.error('data/technicians already exists. Stop, or re-run with --force to overwrite.'); process.exit(1); }
-    const r = plan(JSON.parse(snap.data().payload));
+    const r = plan(JSON.parse(snap.data().payload), { clean: process.argv.includes('--clean') });
     console.log((go ? 'WRITING' : 'DRY RUN') + ': ' + Object.keys(r.docs).length + ' documents');
     Object.keys(r.docs).sort().forEach(p => console.log('  ' + p + (r.docs[p].p ? '  (' + r.docs[p].p.length + ' bytes)' : '')));
     r.notes.forEach(n => console.log(n));
